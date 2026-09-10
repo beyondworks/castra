@@ -79,9 +79,14 @@ def main() -> int:
         if missing:
             failures.append("hook produced output for a missing transcript")
 
+        # an undersized window must not surface a negative token count
+        overfull = run_hook(t, 100_000, home)
+        if "-" in overfull.split("추정 잔여 ")[-1].split(" 토큰")[0]:
+            failures.append("hook reported a negative remaining count")
+
     for f in failures:
         print("FAIL", f)
-    print(f"{6 - len(failures)}/6 budget checks passed")
+    print(f"{7 - len(failures)}/7 budget checks passed")
     return 1 if failures else 0
 
 

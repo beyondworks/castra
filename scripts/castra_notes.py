@@ -216,8 +216,9 @@ def cmd_budget(a):
     remaining = total - used
     pct = (remaining / total * 100) if total else 0
     if remaining < 0:
-        print("WARN: 추정 사용량이 창 크기를 넘었다. 세션 파일에 압축으로 빠진")
-        print("      과거 기록이 누적된 경우다. --tail 로 최근 구간만 세라.\n")
+        print(f"WARN: 점유량이 지정한 창 크기를 넘었다({used:,} > {total:,}).")
+        print("      --window 값이 실제 창보다 작다. 생략하면 자동 감지한다.\n")
+        remaining, pct = 0, 0.0
     print(f"context_window : {total:,}")
     print(f"estimated_used : {used:,}   (source: {src})")
     print(f"remaining      : {remaining:,}  ({pct:.1f}%)")

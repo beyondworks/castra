@@ -52,6 +52,10 @@ DETECTED=${READING#* }
 
 REMAIN=$(( WINDOW - USED ))
 
+# 창 크기 추정이 실제보다 작으면 잔여가 음수로 나온다. 판정은 원값으로 하되
+# 사람이 읽는 숫자는 0 아래로 내려보내지 않는다.
+SHOWN=$(( REMAIN < 0 ? 0 : REMAIN ))
+
 # 정본 임계값을 비율로 환산: 6144/272000 ≈ 2.3%, 16384/272000 ≈ 6.0%
 WARN=$(( WINDOW * 6 / 100 ))
 CRIT=$(( WINDOW * 2 / 100 ))
@@ -59,7 +63,7 @@ CRIT=$(( WINDOW * 2 / 100 ))
 if [ "$REMAIN" -le "$CRIT" ]; then
   cat <<MSG
 <context_window_reminder>
-현재 컨텍스트 창이 사실상 고갈됐다(추정 잔여 ${REMAIN} 토큰). 이 창에서 작업을 계속하거나 최종 답변을 작성하지 마라.
+현재 컨텍스트 창이 사실상 고갈됐다(추정 잔여 ${SHOWN} 토큰). 이 창에서 작업을 계속하거나 최종 답변을 작성하지 마라.
 지금 castra_notes.py checkpoint 를 정확히 한 번 호출해 목표·결정·진행·학습·다음단계와 아직 처리 중인 사용자 요청을 기록하라.
 기록이 끝나면 그 사실만 알리고 새 창에서 이어가라. 잘린 답변보다 깨끗한 인계가 낫다.
 </context_window_reminder>
@@ -67,7 +71,7 @@ MSG
 elif [ "$REMAIN" -le "$WARN" ]; then
   cat <<MSG
 <context_window_reminder>
-컨텍스트 예산이 얼마 남지 않았다(추정 잔여 ${REMAIN} 토큰). 다음 큰 작업을 시작하기 전에
+컨텍스트 예산이 얼마 남지 않았다(추정 잔여 ${SHOWN} 토큰). 다음 큰 작업을 시작하기 전에
 castra_notes.py checkpoint 로 현재 상태를 남겨라. 오래된 항목은 정리하라.
 </context_window_reminder>
 MSG

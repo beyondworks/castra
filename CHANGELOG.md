@@ -4,6 +4,20 @@ All notable changes to Castra are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-09-10
+
+### Fixed
+- Budget hook no longer prints a negative remaining-token count. When the assumed
+  window is smaller than actual occupancy the threshold still fires, but the number
+  shown to the model is clamped at zero instead of reading like a corrupted value.
+- `castra_notes.py budget` explains an over-full result correctly: the window
+  argument is too small, and omitting it lets detection choose. The previous message
+  blamed transcript accumulation, which no longer applies now that occupancy is read
+  from usage records.
+
+### Added
+- Regression check that fails if a negative remaining count reaches the output.
+
 ## [0.1.0] - 2026-09-10
 
 First public release.
