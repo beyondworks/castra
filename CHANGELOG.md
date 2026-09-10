@@ -4,6 +4,19 @@ All notable changes to Castra are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-10
+
+### Added
+- `thinking-map` skill. Castra governs how work ends; this covers how it starts.
+  Four stages: split the subject into orthogonal axes before writing any candidate,
+  spread at least four per axis with the last one an inversion, cross-link items from
+  different axes with a written mechanism per pair, then prune against a criterion
+  fixed in advance. Two rules do the work — the orthogonality test that keeps axes
+  from collapsing, and the mechanism sentence that separates a synthesis from a list
+  pretending to be one. English and Korean versions ship together.
+- The installer places the skill in `~/.claude/skills/thinking-map/` and leaves an
+  existing skill of that name untouched.
+
 ## [0.1.1] - 2026-09-10
 
 ### Fixed

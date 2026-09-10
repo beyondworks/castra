@@ -22,6 +22,15 @@ chmod +x "$CASTRA_HOME"/scripts/*.py "$HOOK_DIR"/castra-*
 echo "installed: $CASTRA_HOME"
 echo "installed: $HOOK_DIR/castra-{budget.sh,guardian.py,openloop.py}"
 
+SKILL_DIR="$CLAUDE_DIR/skills/thinking-map"
+if [ -f "$SKILL_DIR/SKILL.md" ]; then
+  echo "skipped: $SKILL_DIR/SKILL.md already exists, left untouched"
+else
+  mkdir -p "$SKILL_DIR"
+  cp "$SRC"/skills/thinking-map/SKILL*.md "$SKILL_DIR/"
+  echo "installed: $SKILL_DIR"
+fi
+
 python3 - "$SETTINGS" <<'PY'
 import json, pathlib, sys
 

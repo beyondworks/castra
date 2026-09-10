@@ -91,6 +91,23 @@ A `Stop` hook reads `.castra/openloops`. If any line remains, the turn does not 
 
 There is a block cap, because a hook that can never be satisfied is worse than no hook.
 
+## Also included: the thinking-map skill
+
+Castra is about the end of the work. One skill ships alongside it that is about the beginning, because the two failures are opposite and both are real.
+
+Ask a model to open up a problem and you get a flat list. Ten plausible options, ordered roughly by how conventional they are, and then it picks one near the top. Nothing on that list came from combining two of the others. The model widened; it never connected.
+
+`skills/thinking-map/SKILL.md` constrains four stages:
+
+1. **Split into axes before writing any candidate.** One test decides the split: two items belong to the same axis only if they cannot both be true at once. "Free" and "subscription" are one axis. "Free" and "sold to enterprises" are two.
+2. **Spread at least four per axis**, and make the last one a deliberate extreme or inversion. The unfamiliar candidates start at the fourth.
+3. **Cross-link items from different axes, and write the mechanism for each pair in a sentence.** Two words side by side is not a connection, and a pair whose mechanism cannot be written gets discarded. Then ask what happens when two combinations are joined — second-order links are where something absent from every original list appears.
+4. **Prune against a criterion fixed in advance**, and keep the near-miss with its reason.
+
+Two rules carry the weight. The orthogonality test in stage 1 keeps the axes from collapsing into each other, without which stage 3 degenerates into re-grouping the same list. The mechanism sentence in stage 3 is what separates a synthesis from a list pretending to be one.
+
+The skill installs to `~/.claude/skills/thinking-map/` and is invocable as `/thinking-map`. A Korean version sits beside it as `SKILL.ko.md`. If you already have a skill by that name, the installer leaves yours alone.
+
 ## Install
 
 ```bash
