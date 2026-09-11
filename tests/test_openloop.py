@@ -17,7 +17,7 @@ def run(cwd: pathlib.Path, encoding: str | None = None) -> dict:
     if encoding:
         env["PYTHONIOENCODING"] = encoding
     proc = subprocess.run([sys.executable, str(HOOK)], input=PAYLOAD,
-                          capture_output=True, text=True, cwd=cwd, env=env)
+                          capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd, env=env)
     try:
         return json.loads(proc.stdout or "{}")
     except json.JSONDecodeError:

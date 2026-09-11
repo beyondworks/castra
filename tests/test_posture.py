@@ -17,7 +17,7 @@ def run(payload: str = '{"hook_event_name":"SessionStart","source":"startup"}',
     # rather than whatever happens to be installed on this machine.
     env = dict(os.environ, CASTRA_HOME=str(ROOT))
     proc = subprocess.run([sys.executable, str(HOOK)], input=payload,
-                          capture_output=True, text=True, cwd=cwd or ROOT, env=env)
+                          capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd or ROOT, env=env)
     return proc.stdout
 
 
@@ -54,7 +54,7 @@ def main() -> int:
         copy = empty / "hooks" / "castra-posture.py"
         copy.write_text(HOOK.read_text(encoding="utf-8"), encoding="utf-8")
         proc = subprocess.run([sys.executable, str(copy)], input="{}",
-                              capture_output=True, text=True, cwd=empty)
+                              capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=empty)
         # ~/.castra may exist on this machine; only assert it never crashes
         if proc.returncode != 0:
             failures.append("hook exited non-zero when the pack was absent")

@@ -35,7 +35,7 @@ def run_hook(path: pathlib.Path, window: int, home: pathlib.Path) -> str:
     env = dict(os.environ, CASTRA_CONTEXT_WINDOW=str(window), HOME=str(home))
     payload = json.dumps({"transcript_path": str(path)})
     proc = subprocess.run([sys.executable, str(HOOK)], input=payload,
-                          capture_output=True, text=True, env=env)
+                          capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
     return proc.stdout.strip()
 
 

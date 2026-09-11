@@ -16,7 +16,7 @@ def fire(cwd: pathlib.Path, tool: str, tool_input: dict) -> None:
                    input=json.dumps({"hook_event_name": "PostToolUse",
                                      "tool_name": tool, "tool_input": tool_input,
                                      "cwd": str(cwd)}),
-                   capture_output=True, text=True, cwd=cwd)
+                   capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd)
 
 
 def loops(cwd: pathlib.Path) -> list:
@@ -27,7 +27,7 @@ def loops(cwd: pathlib.Path) -> list:
 def stop_blocks(cwd: pathlib.Path) -> bool:
     proc = subprocess.run([sys.executable, str(STOP)],
                           input=json.dumps({"hook_event_name": "Stop"}),
-                          capture_output=True, text=True, cwd=cwd)
+                          capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd)
     try:
         out = json.loads(proc.stdout or "{}")
     except json.JSONDecodeError:
