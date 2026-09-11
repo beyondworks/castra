@@ -21,6 +21,15 @@ import os
 import pathlib
 import sys
 
+# Windows consoles default to a legacy code page, so any non-ASCII byte written
+# here raises UnicodeEncodeError and the hook dies without output — which looks
+# exactly like a hook that decided to do nothing. Force UTF-8, and escape
+# non-ASCII in the JSON as well so the output survives either way.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, OSError):
+    pass
+
 HERE = pathlib.Path(__file__).resolve().parent
 for candidate in (pathlib.Path.home() / ".castra" / "scripts", HERE.parent / "scripts"):
     if (candidate / "castra_notes.py").exists():

@@ -18,6 +18,15 @@
 """
 import json, pathlib, re, sys
 
+# Windows consoles default to a legacy code page, so any non-ASCII byte written
+# here raises UnicodeEncodeError and the hook dies without output — which looks
+# exactly like a hook that decided to do nothing. Force UTF-8, and escape
+# non-ASCII in the JSON as well so the output survives either way.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, OSError):
+    pass
+
 sys.path.insert(0, str(pathlib.Path.home() / ".castra" / "scripts"))
 try:
     from castra_guardian import classify, ORDER
@@ -101,7 +110,7 @@ def main():
                 "permissionDecision": "deny",
                 "permissionDecisionReason": msg,
             }
-        }, ensure_ascii=False))
+        }))
         return
 
     if grade == "confirm_at_action" or escalated:
@@ -110,7 +119,7 @@ def main():
             note += f" 시크릿 위험: {secrets}."
         if escalated:
             note += " 직전 5개 행동 중 hand-off 등급이 있었다. 경계를 유지하라."
-        print(json.dumps({"systemMessage": note}, ensure_ascii=False))
+        print(json.dumps({"systemMessage": note}))
         return
 
     print(json.dumps({}))

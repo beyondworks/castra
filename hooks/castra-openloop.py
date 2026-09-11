@@ -22,6 +22,15 @@ import os
 import pathlib
 import sys
 
+# Windows consoles default to a legacy code page, so any non-ASCII byte written
+# here raises UnicodeEncodeError and the hook dies without output — which looks
+# exactly like a hook that decided to do nothing. Force UTF-8, and escape
+# non-ASCII in the JSON as well so the output survives either way.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, OSError):
+    pass
+
 MAX_BLOCK = 2
 COUNTER = ".castra/.stop_blocks"
 
@@ -74,7 +83,7 @@ def main():
             + str(MAX_BLOCK) + ")에 도달해 종료를 허용한다. 남은 항목: "
             + "; ".join(loops[:3])
         )
-        print(json.dumps({"systemMessage": msg}, ensure_ascii=False))
+        print(json.dumps({"systemMessage": msg}))
         return
 
     items = "\n".join("  - " + l for l in loops)
@@ -93,7 +102,7 @@ def main():
             "shouldContinue": True,
             "reason": reason,
         }
-    }, ensure_ascii=False))
+    }))
 
 
 if __name__ == "__main__":

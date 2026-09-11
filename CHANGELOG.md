@@ -4,6 +4,18 @@ All notable changes to Castra are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-09-11
+
+### Fixed
+- Hooks no longer die on a legacy console code page. Windows defaults to one, and
+  writing a non-ASCII byte there raised `UnicodeEncodeError`, killing the hook
+  before it produced output — indistinguishable from a hook that decided to do
+  nothing. Hook output is now forced to UTF-8 and JSON escapes non-ASCII as well,
+  so it survives either way. Caught by the Windows CI job added in 0.3.0.
+
+### Added
+- Open-loop check that runs the hook under a legacy encoding and fails if it dies.
+
 ## [0.3.0] - 2026-09-11
 
 Windows support. Nothing about the harness was portable before this: the budget
