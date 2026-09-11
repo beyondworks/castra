@@ -4,6 +4,16 @@ All notable changes to Castra are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-09-11
+
+### Fixed
+- The checks decoded hook output with the local code page on Windows.
+  `subprocess` with `text=True` uses `locale.getpreferredencoding()`, which is
+  cp1252 there, so reading UTF-8 hook output raised `UnicodeDecodeError`. The
+  0.3.1 fix covered what the hooks write; this covers what the checks read back.
+  0.5.0 was tagged before the Windows job reported, so this is the release that
+  actually passes on all three platforms.
+
 ## [0.5.0] - 2026-09-11
 
 Three features had a measured call rate of zero because they were instructions
