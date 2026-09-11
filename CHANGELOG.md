@@ -4,6 +4,30 @@ All notable changes to Castra are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-11
+
+The pack was never being read. Measured across ten sessions where the routing
+line was loaded, the number that actually opened the pack file was zero. A rule
+that depends on the model choosing to read a rule is not in force.
+
+### Added
+- `castra-posture.py`, a `SessionStart` hook that prints the whole pack into
+  context. No matcher, so it also fires after a compaction — which replaces
+  earlier context with a summary and would otherwise drop the posture entirely.
+- The three commands the model has to call by hand (checkpoint, guardian,
+  open-loop entry) are printed alongside the pack. Their call rate was also zero
+  while they lived only in a referenced file.
+- Posture check that fails if any pack section is missing from the hook output,
+  so a summary can never quietly replace the pack.
+
+### Changed
+- The harness is now four hooks rather than three, and the `CLAUDE.md` routing
+  line says the pack is injected rather than telling the model to open it.
+
+### Cost
+About 8,600 tokens per session. A summary would be cheaper and a summary is
+exactly what was already in place while nothing read the pack.
+
 ## [0.3.1] - 2026-09-11
 
 ### Fixed

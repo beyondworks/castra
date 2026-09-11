@@ -22,6 +22,9 @@ import sys
 
 SRC = pathlib.Path(__file__).resolve().parent
 HOOK_SCRIPTS = {
+    # SessionStart has no matcher on purpose: the posture has to be re-injected
+    # after a compaction, which replaces earlier context with a summary.
+    "SessionStart": (None, "castra-posture.py"),
     "UserPromptSubmit": (None, "castra-budget.py"),
     "PreToolUse": ("Bash", "castra-guardian.py"),
     "Stop": (None, "castra-openloop.py"),
