@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """SessionStart hook: injects the pack, so no session has to open the file."""
+import os
 import pathlib
 import subprocess
 import sys
@@ -12,8 +13,11 @@ PACK = ROOT / "packs" / "execution-posture-pack.txt"
 
 def run(payload: str = '{"hook_event_name":"SessionStart","source":"startup"}',
         cwd: pathlib.Path | None = None) -> str:
+    # Point CASTRA_HOME at the repo so the check reads the pack it asserts against
+    # rather than whatever happens to be installed on this machine.
+    env = dict(os.environ, CASTRA_HOME=str(ROOT))
     proc = subprocess.run([sys.executable, str(HOOK)], input=payload,
-                          capture_output=True, text=True, cwd=cwd or ROOT)
+                          capture_output=True, text=True, cwd=cwd or ROOT, env=env)
     return proc.stdout
 
 
@@ -31,11 +35,17 @@ def main() -> int:
     if missing:
         failures.append(f"{len(missing)} pack sections did not reach the output")
 
-    # the three model-invoked commands had a zero call rate when they lived only
-    # in a file, so they have to appear in the injected text itself
-    for needle in ("castra_notes.py checkpoint", "castra_guardian.py", "openloops"):
-        if needle not in out:
-            failures.append(f"operative command missing from output: {needle}")
+    # Only one thing is still called by hand, and it has to appear in the
+    # injected text rather than in a file the model would have to open.
+    if "castra_notes.py checkpoint" not in out:
+        failures.append("the checkpoint command is missing from the output")
+
+    # The guard and the open-loop record run from tool events now. Advertising
+    # them as commands to call would reintroduce the dependence on the model
+    # choosing to call something, which measured zero.
+    for stale in ("castra_guardian.py \"", ">> .castra/openloops"):
+        if stale in out:
+            failures.append(f"output still asks the model to call: {stale}")
 
     # a missing pack must be silent rather than noisy
     with tempfile.TemporaryDirectory() as tmp:

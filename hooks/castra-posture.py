@@ -23,9 +23,14 @@ try:
 except (AttributeError, OSError):
     pass
 
+import os
+
 HERE = pathlib.Path(__file__).resolve().parent
+# CASTRA_HOME is what the installer honours, so the hook has to honour it too;
+# otherwise a test or a second install reads a different pack than it writes.
+_HOME = pathlib.Path(os.environ.get("CASTRA_HOME") or (pathlib.Path.home() / ".castra"))
 CANDIDATES = (
-    pathlib.Path.home() / ".castra" / "packs" / "execution-posture-pack.txt",
+    _HOME / "packs" / "execution-posture-pack.txt",
     HERE.parent / "packs" / "execution-posture-pack.txt",
 )
 
@@ -35,22 +40,24 @@ HEADER = """<castra_execution_posture>
 """
 
 FOOTER = """
-## Operative commands
+## What runs on its own
 
-이 태세를 실제로 쓰려면 아래 세 가지를 직접 호출해야 한다. 규칙으로만 적어
-두었을 때 호출률이 0 이었으므로 명령을 여기에 그대로 둔다.
+아래는 훅이 알아서 한다. 부르지 않아도 되고, 부를 필요도 없다.
 
-- 여러 창에 걸치거나 중단 후 재개할 작업이면, 진행하면서 기록한다.
-  `python3 ~/.castra/scripts/castra_notes.py checkpoint --goal ... --progress ... --next ...`
-  새 창에서 이어받을 때는 `read` 가 첫 명령이다.
-- 되돌리기 어려운 셸 명령을 실행하기 직전에 등급을 확인한다.
-  `python3 ~/.castra/scripts/castra_guardian.py "<명령>"`
-  exit 3 은 사용자가 직접, 2 는 실행 직전 확인, 0 은 진행이다. 이 분류기는
-  하한선이며 판단을 대신하지 않는다.
-- 턴 안에 끝내지 못한 일이 생기면 한 줄로 적는다.
-  `echo "<항목>" >> .castra/openloops`
-  미확인 결과, 반영 여부를 못 본 변경, 기다리는 중인 것이 여기 해당한다.
-  처리하면 그 줄을 지운다. 적지 않으면 Stop 훅은 막을 것이 없다.
+- 되돌리기 어려운 셸 명령은 실행 직전에 등급이 매겨진다. hand-off 면 거부되고,
+  확인 등급이면 그 사유가 함께 온다. 분류기는 하한선이며 판단을 대신하지 않는다 —
+  등급이 0 이어도 파괴적이라고 보이면 확인을 받는다.
+- 코드 파일을 고치면 "실행·검사한 기록이 없음"이 미결로 적힌다. 그 파일을 실제로
+  돌리면 지워진다. 미결이 남아 있으면 턴이 끝나지 않는다. 파일을 직접 편집해
+  지우지 마라 — 확인하지 않은 것을 확인한 것으로 만드는 일이다.
+- 컨텍스트 예산이 임계값에 닿으면 지시가 들어온다.
+
+손으로 해야 하는 것은 하나뿐이다. 여러 창에 걸치거나 중단 후 재개할 작업이면
+진행하면서 기록한다.
+
+    python3 ~/.castra/scripts/castra_notes.py checkpoint --goal ... --progress ... --next ...
+
+새 창에서 이어받을 때는 `read` 가 첫 명령이다.
 </castra_execution_posture>"""
 
 

@@ -27,6 +27,10 @@ HOOK_SCRIPTS = {
     "SessionStart": (None, "castra-posture.py"),
     "UserPromptSubmit": (None, "castra-budget.py"),
     "PreToolUse": ("Bash", "castra-guardian.py"),
+    # Open loops are recorded from tool use itself. Asking the model to write
+    # them produced a call rate of zero, which left the Stop hook with nothing
+    # to block on.
+    "PostToolUse": ("Edit|Write|NotebookEdit|Bash", "castra-trace.py"),
     "Stop": (None, "castra-openloop.py"),
 }
 

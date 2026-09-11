@@ -91,11 +91,15 @@ bash -c "rm -rf ~/Code"           → confirm_at_action
 
 This matters more than it looks. Stripping quotes globally would have made every SQL rule permanently dead, because a database command is *always* quoted in a shell — and it would have handed the model a one-character bypass.
 
-### 4. Open-loop hook — the turn does not end on unfinished work
+### 4. Open loops — recorded by the tooling, not by the model
 
-A `Stop` hook reads `.castra/openloops`. If any line remains, the turn does not end. Unverified results, changes whose effect was never observed, and things still running go there one per line; a line is deleted when it is closed.
+A `PostToolUse` hook writes the open loops and a `Stop` hook refuses to end the turn while any remain. Editing a code file records "changed, never observed running". A command that actually runs that file clears it.
 
-There is a block cap, because a hook that can never be satisfied is worse than no hook.
+The first version asked the model to write those entries itself. Across ten sessions it wrote **zero**, so the `Stop` hook had nothing to block on and looked, from the outside, exactly like a hook that was working fine. The fix was not to detect the idleness. It was to remove the step that someone had to remember: the hook is now both the only author and the only reader of the file.
+
+Documentation and config edits are excluded. A gate that fires on things nobody needs to verify is a gate people learn to route around, and there is a block cap for the same reason — a hook that can never be satisfied is worse than no hook.
+
+**The rule this produced:** a capability that depends on the model choosing to invoke it is not a control. Bind it to an event, and derive its input from something that always exists — the tool call, the transcript — never from a file another party is supposed to fill in.
 
 ## Also included: the thinking-map skill
 

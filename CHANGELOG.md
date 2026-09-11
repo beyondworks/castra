@@ -4,6 +4,32 @@ All notable changes to Castra are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-09-11
+
+Three features had a measured call rate of zero because they were instructions
+to call something rather than events. Detecting that they were idle would have
+been the wrong fix. They are now events.
+
+### Added
+- `castra-trace.py`, a `PostToolUse` hook that records open loops from tool use
+  itself. Editing a code file records "changed, never observed running"; a command
+  that actually runs that file clears it. The hook is both the only author and the
+  only reader of the file, so there is no step that someone has to remember.
+  Documentation and config edits are excluded — a gate that fires on things nobody
+  needs to verify is a gate people learn to ignore.
+
+### Changed
+- The pack no longer tells the model to invoke the risk classifier. A `PreToolUse`
+  hook already classifies every command and the verdict arrives as a tool result.
+- `CLAUDE.md` no longer asks the model to write open loops or to call the guard.
+- `castra-posture.py` honours `CASTRA_HOME`, which the installer already honoured.
+  Without it a check could read a different pack than the one it asserts against.
+
+### Design rule this release establishes
+A capability that depends on the model choosing to invoke it is not a control.
+Bind it to an event, and derive its input from something that always exists — the
+tool call, the transcript — never from a file another party is supposed to fill in.
+
 ## [0.4.0] - 2026-09-11
 
 The pack was never being read. Measured across ten sessions where the routing

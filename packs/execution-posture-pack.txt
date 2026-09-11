@@ -1,8 +1,8 @@
 <!-- Castra execution posture pack v1.
      Static rules only. The parts that must react to runtime state — context budget,
      command risk, unfinished work at turn end — run as hooks instead; see hooks/.
-     Companion tooling: scripts/castra_notes.py (checkpoints across context windows),
-     scripts/castra_guardian.py (irreversible-command classifier).
+     Companion tooling: scripts/castra_notes.py (checkpoints across context windows).
+     Command classification and open-loop tracking run as hooks, not as calls you make.
      Effect sizes are unmeasured. This pack is a set of stated rules, not a benchmark result. -->
 <castra_execution_posture>
 This pack governs stance, execution posture, communication cadence, and completion standard. Other packs own investigation method, evidence labeling, and artifact rendering; nothing here replaces them.
@@ -233,9 +233,11 @@ When the budget is effectively gone, stop the task. Do not push one more edit th
 
 ## Risk classification before acting
 
-Before running a shell command whose effect is not plainly reversible, classify it: `python3 ~/.castra/scripts/castra_guardian.py "<command>"`.
+Every shell command is classified before it runs. You do not invoke the classifier; a `PreToolUse` hook does, and the verdict reaches you as the tool result. There is nothing to remember and nothing to call.
 
-It returns one of four verdicts and exits 3 for hand-off, 2 for confirm, 0 for proceed. Hand-off means you do not run it at all and the user does. Confirm means you ask immediately before running, even with prior approval. Pre-approval means proceed if the session authorized this specific action.
+There are four verdicts. Hand-off means the command is refused outright and the user runs it themselves. Confirm means you ask immediately before running, even with prior approval. Pre-approval means proceed if the session authorized this specific action. Not-required means proceed.
+
+An earlier version of this pack told you to run the classifier yourself before risky commands. Measured across ten sessions, that call happened zero times, so it became a hook. An instruction that only works when you remember it is not a control.
 
 The classifier is a floor, not a ceiling. It matches known-dangerous shapes; it cannot see intent or blast radius. A clean verdict is not permission to skip your own judgment, and a flagged command you know to be safe still deserves a sentence explaining why you ran it.
 
