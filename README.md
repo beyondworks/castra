@@ -110,18 +110,32 @@ The skill installs to `~/.claude/skills/thinking-map/` and is invocable as `/thi
 
 ## Install
 
+**macOS and Linux**
+
 ```bash
 git clone https://github.com/beyondworks/castra.git
 cd castra && ./install.sh
 ```
 
-The installer copies the pack and scripts to `~/.castra/`, copies three hooks to `~/.claude/hooks/`, registers them in `~/.claude/settings.json` without disturbing hooks you already have, and prints a routing block to paste into your `CLAUDE.md`. Restart Claude Code once so the hook registration is picked up.
+**Windows**
 
-Verify:
-
-```bash
-./tests/run.sh
+```powershell
+git clone https://github.com/beyondworks/castra.git
+cd castra
+powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
+
+Python 3 is the only requirement, and both scripts are thin wrappers around `install.py` so the two platforms run identical logic. The installer copies the pack and scripts to `~/.castra/`, copies three hooks to `~/.claude/hooks/`, registers them in settings without disturbing hooks you already have, and points you at a routing block for your `CLAUDE.md`. Restart Claude Code once so the registration is picked up. Add `--dry-run` to see what would change first.
+
+Verify with `./tests/run.sh`, or `python install.py` and `python tests\run.py` on Windows.
+
+### Why the hooks are Python, not shell
+
+Claude Code runs a shell-form hook through `sh -c` on macOS and Linux, but on Windows through Git Bash — or PowerShell when Git Bash is not installed. A `.sh` hook is therefore not portable, and `$HOME` does not mean the same thing in each case.
+
+Castra registers its hooks in **exec form** instead: Claude Code spawns the interpreter directly with an argument vector and no shell in between. That removes shell differences, quoting, and variable expansion from the path entirely. The installer writes an absolute interpreter path, deliberately unresolved, because resolving symlinks pins a version-specific directory that vanishes on the next patch upgrade and takes the hooks down silently.
+
+The guardian classifier carries PowerShell rules alongside the POSIX ones for the same reason. `Remove-Item -Recurse -Force`, `Format-Volume`, `Set-ExecutionPolicy`, and `iwr … | iex` are the same dangers in a notation that no POSIX pattern matches.
 
 ## What this is not
 

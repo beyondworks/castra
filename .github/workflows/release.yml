@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Run checks
-        run: ./tests/run.sh
+        run: python tests/run.py
 
   release:
     needs: test

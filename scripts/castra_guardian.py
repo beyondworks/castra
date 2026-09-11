@@ -52,6 +52,24 @@ RULES = [
      "hand_off", "비밀키·자격증명 출력"),
     (r"\bgit\s+add\s+(\.|-A|--all)(\s|$)",
      "confirm_at_action", "security.md: git add . / -A 금지, 파일을 명시하라"),
+
+    # PowerShell — 윈도우에서 Git Bash 가 없으면 셸이 PowerShell 로 떨어진다.
+    # 같은 위험이 전혀 다른 표기로 들어오므로 POSIX 규칙이 하나도 걸리지 않는다.
+    (r"\bFormat-Volume\b|\bClear-Disk\b|\bInitialize-Disk\b",
+     "hand_off", "디스크 포맷"),
+    (r"\bSet-ExecutionPolicy\b",
+     "hand_off", "스크립트 실행 정책 변경"),
+    (r"\bRemove-Item\b[^|;]*(-Recurse|-r\b)[^|;]*(-Force|-f\b)|"
+     r"\bRemove-Item\b[^|;]*(-Force|-f\b)[^|;]*(-Recurse|-r\b)",
+     "confirm_at_action", "재귀 삭제는 복구가 어렵다"),
+    (r"\b(iwr|irm|Invoke-WebRequest|Invoke-RestMethod)\b[^|;]*\|\s*(iex|Invoke-Expression)\b",
+     "confirm_at_action", "원격 스크립트 즉시 실행"),
+    (r"\bStop-(Service|Process)\b|\bSet-Service\b[^|;]*-StartupType\s+Disabled\b",
+     "confirm_at_action", "서비스·프로세스 중단"),
+    (r"\bStart-Process\b[^|;]*-Verb\s+RunAs\b",
+     "confirm_at_action", "권한 상승"),
+    (r"\b(Get-Content|type|gc)\b[^|;]*\.env(\.|\b)",
+     "hand_off", "security.md: .env 파일은 읽어서 출력하지 않는다"),
 ]
 
 # 시크릿 노출 위험 (등급과 별개로 항상 경고)

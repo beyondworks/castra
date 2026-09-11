@@ -54,14 +54,30 @@ Castra는 일의 끝을 다룹니다. 함께 들어 있는 스킬 하나는 일�
 
 ## 설치
 
+**macOS·리눅스**
+
 ```bash
 git clone https://github.com/beyondworks/castra.git
 cd castra && ./install.sh
 ```
 
-팩과 스크립트는 `~/.castra/`로, 훅 셋은 `~/.claude/hooks/`로 들어갑니다. 기존 훅은 건드리지 않고 등록만 추가하며, `settings.json`은 쓰기 전에 백업합니다. 등록을 반영하려면 Claude Code를 한 번 재시작해야 합니다.
+**윈도우**
 
-검증은 `./tests/run.sh`로 합니다.
+```powershell
+git clone https://github.com/beyondworks/castra.git
+cd castra
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+필요한 것은 파이썬 3뿐입니다. 두 스크립트 모두 `install.py`를 부르는 얇은 껍데기라 실제 동작은 완전히 같습니다. 팩과 스크립트는 `~/.castra/`로, 훅 셋은 `~/.claude/hooks/`로 들어갑니다. 기존 훅은 건드리지 않고 등록만 추가하며 설정 파일은 쓰기 전에 백업합니다. `--dry-run`을 붙이면 무엇이 바뀔지만 보여줍니다.
+
+### 훅을 셸이 아니라 파이썬으로 쓴 이유
+
+Claude Code는 셸 형식 훅을 macOS·리눅스에서는 `sh -c`로 실행하지만, 윈도우에서는 Git Bash로, 그마저 없으면 PowerShell로 실행합니다. 따라서 `.sh` 훅은 이식되지 않고 `$HOME`의 의미도 경우마다 다릅니다.
+
+그래서 Castra는 **exec 형식**으로 등록합니다. Claude Code가 셸을 거치지 않고 인터프리터를 직접 실행하는 방식이라, 셸 차이와 따옴표 처리와 변수 확장이 통째로 빠집니다. 설치기는 인터프리터의 절대 경로를 쓰되 심볼릭 링크를 일부러 따라가지 않습니다. 링크를 따라가면 버전이 박힌 경로가 고정되는데, 그 경로는 다음 패치 때 사라지면서 훅을 조용히 죽입니다.
+
+가드 분류기에 PowerShell 규칙을 함께 넣은 것도 같은 이유입니다. `Remove-Item -Recurse -Force`나 `Format-Volume`은 POSIX 패턴이 하나도 걸리지 않는 표기의 같은 위험입니다.
 
 ## 이것이 아닌 것
 

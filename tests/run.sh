@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# Run every Castra check. Exits non-zero if any of them fails.
-set -uo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")"
-status=0
-for t in test_*.py; do
-  echo "── $t"
-  python3 "$t" || status=1
-done
-exit "$status"
+# Thin wrapper for macOS and Linux; the checks live in run.py.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYBIN="$(command -v python3 || command -v python)"
+exec "$PYBIN" "$HERE/run.py" "$@"

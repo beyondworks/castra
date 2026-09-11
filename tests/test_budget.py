@@ -17,7 +17,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import castra_notes  # noqa: E402
 
-HOOK = ROOT / "hooks" / "castra-budget.sh"
+HOOK = ROOT / "hooks" / "castra-budget.py"
 
 
 def transcript(path: pathlib.Path, used: int, model: str = "test-model") -> None:
@@ -34,7 +34,7 @@ def transcript(path: pathlib.Path, used: int, model: str = "test-model") -> None
 def run_hook(path: pathlib.Path, window: int, home: pathlib.Path) -> str:
     env = dict(os.environ, CASTRA_CONTEXT_WINDOW=str(window), HOME=str(home))
     payload = json.dumps({"transcript_path": str(path)})
-    proc = subprocess.run(["bash", str(HOOK)], input=payload,
+    proc = subprocess.run([sys.executable, str(HOOK)], input=payload,
                           capture_output=True, text=True, env=env)
     return proc.stdout.strip()
 
@@ -68,11 +68,11 @@ def main() -> int:
             failures.append("hook warned while the budget was healthy")
 
         warn = run_hook(t, 170_000, home)
-        if "context_window_reminder" not in warn or "얼마 남지" not in warn:
+        if "context_window_reminder" not in warn or "running low" not in warn:
             failures.append("hook did not warn at the warning threshold")
 
         crit = run_hook(t, 163_000, home)
-        if "context_window_reminder" not in crit or "고갈" not in crit:
+        if "context_window_reminder" not in crit or "effectively gone" not in crit:
             failures.append("hook did not fire at the critical threshold")
 
         missing = run_hook(pathlib.Path("/nonexistent.jsonl"), 200_000, home)
@@ -81,7 +81,7 @@ def main() -> int:
 
         # an undersized window must not surface a negative token count
         overfull = run_hook(t, 100_000, home)
-        if "-" in overfull.split("추정 잔여 ")[-1].split(" 토큰")[0]:
+        if "-" in overfull.split("about ")[-1].split(" tokens")[0]:
             failures.append("hook reported a negative remaining count")
 
     for f in failures:

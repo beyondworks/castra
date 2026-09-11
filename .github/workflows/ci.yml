@@ -7,13 +7,23 @@ on:
 
 jobs:
   checks:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Shell syntax
-        run: bash -n install.sh hooks/castra-budget.sh tests/run.sh
+      - name: Install into a throwaway config dir
+        shell: bash
+        env:
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude
+          CASTRA_HOME: ${{ runner.temp }}/castra
+        run: |
+          mkdir -p "$CLAUDE_CONFIG_DIR"
+          python install.py
       - name: Run checks
-        run: ./tests/run.sh
+        run: python tests/run.py

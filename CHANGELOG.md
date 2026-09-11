@@ -4,6 +4,34 @@ All notable changes to Castra are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-11
+
+Windows support. Nothing about the harness was portable before this: the budget
+hook was a shell script, registrations were shell form, and the guardian only
+knew POSIX command shapes.
+
+### Changed
+- The budget hook is now `castra-budget.py`. Claude Code runs a shell-form hook
+  through `sh -c` on macOS and Linux but through Git Bash on Windows, falling back
+  to PowerShell when Git Bash is absent, so `.sh` could not work there.
+- Hooks register in **exec form**, spawning the interpreter directly with an
+  argument vector and no shell in between. This removes shell selection, quoting
+  and variable expansion from the path entirely.
+- The installer writes an absolute but deliberately unresolved interpreter path.
+  Resolving symlinks pinned a version-specific directory such as
+  `.../Cellar/python@3.14/3.14.6/...`, which disappears on the next patch upgrade
+  and takes every hook down without a word.
+
+### Added
+- `install.ps1` for Windows and `install.sh` for macOS and Linux, both thin
+  wrappers over a single `install.py` so every platform runs identical logic.
+  `--dry-run` reports what would change without writing.
+- PowerShell rules in the guardian: recursive `Remove-Item`, `Format-Volume`,
+  `Clear-Disk`, `Set-ExecutionPolicy`, `iwr | iex`, `Start-Process -Verb RunAs`,
+  service stops, and reading `.env` with `Get-Content`.
+- `tests/run.py`, so the suite runs without a shell. CI now runs on Linux, macOS
+  and Windows, and installs into a throwaway config directory on each.
+
 ## [0.2.0] - 2026-09-10
 
 ### Added
