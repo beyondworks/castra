@@ -2,7 +2,7 @@
 
 **Your coding agent stops one step early. Castra is the step.**
 
-Castra is an execution-posture harness for [Claude Code](https://claude.com/claude-code). It is one rule pack, five hooks, and two small scripts. It does not make the model smarter. It removes the four places where a capable model quietly stops short of finishing the job.
+Castra is an execution-posture harness for [Claude Code](https://claude.com/claude-code). It is one rule pack, six hooks, and two small scripts. It does not make the model smarter. It removes the four places where a capable model quietly stops short of finishing the job.
 
 ```
 The fix is written but not deployed          → "deploying is part of verifying"
@@ -42,9 +42,9 @@ A `SessionStart` hook prints the whole pack into context at the start of every s
 
 That distinction was measured, not assumed. The first version put a line in `CLAUDE.md` naming the pack's path. Across ten sessions where that line was loaded, the number that actually opened the file was **zero**. A rule that depends on the model choosing to read a rule is not in force. So the content goes in first, and the three commands the model has to call by hand are printed alongside it rather than left in a file.
 
-The cost is about 9,400 tokens per session. A summary would be cheaper, and a summary is exactly what already existed in `CLAUDE.md` while the read rate sat at zero.
+The cost is about 9,900 tokens per session. A summary would be cheaper, and a summary is exactly what already existed in `CLAUDE.md` while the read rate sat at zero.
 
-The pack runs to twenty-nine sections covering stance, authorization, verification standard, reporting, and precedence. Some representative rules:
+The pack runs to 32 sections covering stance, authorization, verification standard, reporting, and precedence. Some representative rules:
 
 - **Request-shaped language is an instruction.** "Can you look at…" authorizes the work. Do not stop at confirming you can do it.
 - **A missing capability is a thing to find, not a reason to stop.** Before declaring a capability absent, look where it would live: `~/.ssh/config`, `PATH`, the platform's own device listing, the config the tool itself reads. One command usually settles it.

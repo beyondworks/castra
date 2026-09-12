@@ -59,6 +59,22 @@ def main() -> int:
         if loops(cwd):
             failures.append("a markdown edit was recorded as an open loop")
 
+        # a CI workflow edited and never run is the case that let a broken
+        # commit get tagged; extension-only matching missed it
+        wf = cwd / ".github" / "workflows"
+        wf.mkdir(parents=True)
+        fire(cwd, "Edit", {"file_path": str(wf / "ci.yml")})
+        if len(loops(cwd)) != 1:
+            failures.append("a CI workflow edit was not tracked")
+        fire(cwd, "Bash", {"command": "python3 -c 'import yaml' ci.yml"})
+        if loops(cwd):
+            failures.append("running against the workflow did not close its loop")
+
+        # a yaml that is not a workflow or a migration stays out
+        fire(cwd, "Write", {"file_path": str(cwd / "config.yml")})
+        if loops(cwd):
+            failures.append("an ordinary yaml was tracked")
+
         # a command that runs something else must not close an unrelated loop
         fire(cwd, "Edit", {"file_path": str(cwd / "worker.py")})
         fire(cwd, "Bash", {"command": "python3 other.py"})
@@ -72,7 +88,7 @@ def main() -> int:
 
     for f in failures:
         print("FAIL", f)
-    print(f"{6 - len(failures)}/6 trace checks passed")
+    print(f"{9 - len(failures)}/9 trace checks passed")
     return 1 if failures else 0
 
 

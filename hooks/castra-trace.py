@@ -22,10 +22,26 @@ try:
 except (AttributeError, OSError):
     pass
 
-# 고쳐 놓고 안 돌려 보면 곤란한 것들. 문서·설정은 넣지 않는다 —
+# 고쳐 놓고 안 돌려 보면 곤란한 것들. 문서·일반 설정은 넣지 않는다 —
 # 막을 이유가 없는 항목으로 턴을 막으면 관문 자체가 무시당한다.
 CODE_SUFFIXES = {".py", ".js", ".ts", ".tsx", ".jsx", ".rs", ".go",
                  ".rb", ".sh", ".bash", ".zsh", ".java", ".kt", ".swift", ".c", ".cpp"}
+
+# 확장자만 보면 놓치는 것들. CI 워크플로를 고치고 돌려 보지 않아 실패한 커밋에
+# 태그가 붙은 적이 있다. 마이그레이션도 같은 성질이라 함께 넣는다.
+PATH_MARKERS = (
+    ("/.github/workflows/", (".yml", ".yaml")),
+    ("/migrations/", (".sql", ".yml", ".yaml")),
+    ("/supabase/migrations/", (".sql",)),
+)
+
+
+def is_tracked(p: pathlib.Path) -> bool:
+    if p.suffix.lower() in CODE_SUFFIXES:
+        return True
+    posix = p.as_posix()
+    return any(marker in posix and p.suffix.lower() in suffixes
+               for marker, suffixes in PATH_MARKERS)
 PREFIX = "미검증 변경: "
 
 # 무언가를 실제로 돌린 흔적. 이 중 하나가 그 파일을 가리키면 확인된 것으로 본다.
@@ -76,7 +92,7 @@ def main() -> int:
     if tool in ("Edit", "Write", "NotebookEdit"):
         raw = inp.get("file_path") or inp.get("notebook_path") or ""
         p = pathlib.Path(str(raw))
-        if p.suffix.lower() not in CODE_SUFFIXES:
+        if not is_tracked(p):
             return 0
         entry = PREFIX + str(p) + " — 고친 뒤 실행·검사한 기록이 없다"
         if entry not in lines:

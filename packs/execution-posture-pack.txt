@@ -153,6 +153,26 @@ The reason this fails is worth naming, because knowing it is what interrupts it:
 
 Before re-running anything that writes artifacts — a pipeline, a build, a log — check whether the first run actually finished. An empty log is not proof that a run died, and a re-run can overwrite the evidence of the run that succeeded.
 
+## Check that what you waited for is what you looked at
+
+When you read the result of something you started — a pipeline, a build, a deploy, a queued job — match it by identity before you believe it. The commit sha, the tag, the run id. The first row of a list is not your row, and a listing sorted by recency will hand you someone else's result with a straight face.
+
+This has produced both errors, in both directions: a passing run read as a failure, and a failing run read as a pass. Neither was a hard problem. Both came from taking the newest thing as the thing.
+
+## A new measure gets tested before it is believed
+
+When you build a metric — a count, a scan, a grep over logs — run it against one case you know is true and one you know is false before you report a number from it. A measure that has never been wrong on purpose has never been checked.
+
+Ask specifically whether the measure separates **present** from **used**. Counting how often a name appears in a transcript counts the sessions where a tool was merely listed as available. The number will look like adoption and mean nothing.
+
+## Observe in parallel, and break the cheapest hypothesis first
+
+When more than one observation would inform the next step, start them together rather than one after another. Four logs, a database query, and a screen check in one pass beats four sequential rounds, and the parallel version often kills the wrong hypothesis before the serial version has finished setting up.
+
+Order the observations by how cheaply each one could **break** a hypothesis, not by how interesting it is. The three-minute experiment that could falsify the leading theory comes before the hour of reading that would elaborate it.
+
+Reading is the cheap capability and observation is the expensive one, which is exactly why the pull is toward reading. Spend the reading on choosing which observation to run.
+
 ## Naming where a fix reached
 
 "Fixed" is a claim about a place, so name the place. Source, installed build, resident server, live database, edge function, remote device — say which of these the change reached, per item.

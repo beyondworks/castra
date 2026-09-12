@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """SessionStart hook: injects the pack, so no session has to open the file."""
+import hashlib
+import json
 import os
 import pathlib
 import subprocess
@@ -47,6 +49,36 @@ def main() -> int:
         if stale in out:
             failures.append(f"output still asks the model to call: {stale}")
 
+    # a stale install must announce itself: the hook read an old pack while the
+    # checks asserted against the repo, and nothing surfaced the mismatch
+    with tempfile.TemporaryDirectory() as tmp:
+        home = pathlib.Path(tmp)
+        (home / "packs").mkdir()
+        (home / "packs" / "execution-posture-pack.txt").write_text(
+            "## Old\nstale body\n", encoding="utf-8")
+        (home / "manifest.json").write_text(json.dumps({
+            "source": str(ROOT),
+            "files": {"packs/execution-posture-pack.txt": "0" * 16},
+        }), encoding="utf-8")
+        env = dict(os.environ, CASTRA_HOME=str(home))
+        proc = subprocess.run([sys.executable, str(HOOK)], input="{}",
+                              capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", cwd=ROOT, env=env)
+        if "설치본이 정본보다 낡았다" not in proc.stdout:
+            failures.append("a stale install produced no drift notice")
+
+        # matching hashes must stay quiet
+        digest = hashlib.sha256(PACK.read_bytes()).hexdigest()[:16]
+        (home / "manifest.json").write_text(json.dumps({
+            "source": str(ROOT),
+            "files": {"packs/execution-posture-pack.txt": digest},
+        }), encoding="utf-8")
+        proc = subprocess.run([sys.executable, str(HOOK)], input="{}",
+                              capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", cwd=ROOT, env=env)
+        if "설치본이 정본보다" in proc.stdout:
+            failures.append("a matching install still reported drift")
+
     # a missing pack must be silent rather than noisy
     with tempfile.TemporaryDirectory() as tmp:
         empty = pathlib.Path(tmp)
@@ -61,7 +93,7 @@ def main() -> int:
 
     for f in failures:
         print("FAIL", f)
-    print(f"{4 - len(failures)}/4 posture checks passed")
+    print(f"{6 - len(failures)}/6 posture checks passed")
     return 1 if failures else 0
 
 

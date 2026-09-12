@@ -15,6 +15,8 @@ SessionStart 훅. 평문을 stdout 으로 내보내면 그대로 모델의 컨�
 비용은 약 8,600 토큰이다. 요약본을 넣는 선택지도 있었으나, 요약은 이미
 CLAUDE.md 에 있었고 그것으로는 동작하지 않는다는 것이 측정으로 드러났다.
 """
+import hashlib
+import json
 import pathlib
 import sys
 
@@ -61,6 +63,37 @@ FOOTER = """
 </castra_execution_posture>"""
 
 
+def drift_notice() -> str:
+    """설치본이 정본보다 낡았으면 그 사실을 한 줄로 돌려준다.
+
+    설치 시 남긴 manifest 의 해시를 원본 저장소의 현재 파일과 비교한다.
+    실제로 태세 훅이 옛 팩을 읽는 동안 검사는 저장소 팩을 대조하고 있었고,
+    두 판본이 다르다는 사실이 우연히 발견되기 전까지 드러나지 않았다.
+    저장소가 이 기계에 없으면 조용히 넘어간다.
+    """
+    try:
+        manifest = json.loads((_HOME / "manifest.json").read_text(encoding="utf-8"))
+        source = pathlib.Path(manifest["source"])
+        recorded = manifest["files"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        return ""
+    if not source.is_dir():
+        return ""
+    stale = []
+    for rel, want in recorded.items():
+        origin = source / rel
+        try:
+            got = hashlib.sha256(origin.read_bytes()).hexdigest()[:16]
+        except OSError:
+            continue
+        if got != want:
+            stale.append(rel)
+    if not stale:
+        return ""
+    return ("\n[castra] 설치본이 정본보다 낡았다: " + ", ".join(sorted(stale)) +
+            f"\n[castra] 지금 읽은 내용은 옛 판본이다. `python3 {source}/install.py` 로 맞춰라.\n")
+
+
 def main() -> int:
     pack = next((p for p in CANDIDATES if p.is_file()), None)
     if pack is None:
@@ -74,6 +107,9 @@ def main() -> int:
     print(HEADER)
     print(body)
     print(FOOTER)
+    notice = drift_notice()
+    if notice:
+        print(notice)
     return 0
 
 

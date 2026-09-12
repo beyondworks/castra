@@ -4,6 +4,40 @@ All notable changes to Castra are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-09-12
+
+Six rules drawn from failures observed in one session, split by whether an event
+can enforce them. The three that an event can enforce became hooks; writing the
+other three down is only worth doing because the pack is injected.
+
+### Added
+- `castra-release-gate.py`, a `PreToolUse` hook on `git tag`, tag pushes, and
+  `gh release create`. It reads the CI result for the current HEAD and refuses
+  when a run is failing or still in flight. A tag went out on a commit whose
+  Windows job had not reported; the rule against that already existed, and what
+  was missing was looking at the fact at the moment of the act. When the result
+  cannot be determined — no `gh`, no network, no run registered yet — it asks
+  instead of refusing, because a gate that cannot be satisfied gets routed around.
+- Open-loop tracking now covers CI workflows and migrations, not just code
+  extensions. A workflow was edited and never run, and extension-only matching
+  saw nothing. Ordinary yaml stays out.
+- The installer records a manifest of source path and file hashes, and the
+  `SessionStart` hook reports when the installed copy has fallen behind that
+  source. The posture hook had been reading a stale pack while the checks
+  asserted against the repo, and nothing surfaced the mismatch.
+
+### Added to the pack
+- **Check that what you waited for is what you looked at.** Match an async result
+  by sha, tag, or run id. The newest row is not your row — this produced a false
+  failure and a false pass in the same session.
+- **A new measure gets tested before it is believed.** Run it against a known-true
+  and a known-false case first, and ask whether it separates present from used.
+- **Observe in parallel, and break the cheapest hypothesis first.** Reading is the
+  cheap capability and observing is the expensive one, which is why the pull is
+  toward reading. Spend the reading on choosing what to observe.
+
+Pack is now 32 sections, about 9,900 tokens per session. 6 hooks.
+
 ## [0.6.0] - 2026-09-12
 
 Two sections added after a real incident: a cause was reported twice from reading

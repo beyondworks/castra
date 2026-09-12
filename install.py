@@ -14,6 +14,7 @@ variable expansion either, so every path written here is absolute.
   python3 install.py --dry-run  report what would change and touch nothing
 """
 import argparse
+import hashlib
 import json
 import os
 import pathlib
@@ -26,7 +27,7 @@ HOOK_SCRIPTS = {
     # after a compaction, which replaces earlier context with a summary.
     "SessionStart": (None, "castra-posture.py"),
     "UserPromptSubmit": (None, "castra-budget.py"),
-    "PreToolUse": ("Bash", "castra-guardian.py"),
+    "PreToolUse": ("Bash", ("castra-guardian.py", "castra-release-gate.py")),
     # Open loops are recorded from tool use itself. Asking the model to write
     # them produced a call rate of zero, which left the Stop hook with nothing
     # to block on.
@@ -107,18 +108,20 @@ def register(hook_dir: pathlib.Path, settings_path: pathlib.Path, dry: bool) -> 
     pybin = interpreter()
     hooks = settings.setdefault("hooks", {})
     added = []
-    for event, (matcher, script) in HOOK_SCRIPTS.items():
-        args = [str(hook_dir / script)]
+    for event, (matcher, scripts) in HOOK_SCRIPTS.items():
+        names = (scripts,) if isinstance(scripts, str) else scripts
+        wanted = [{"type": "command", "command": pybin, "args": [str(hook_dir / n)]}
+                  for n in names]
         groups = hooks.setdefault(event, [])
-        if any(h.get("command") == pybin and h.get("args") == args
-               for g in groups for h in g.get("hooks", [])):
+        present = [h for g in groups for h in g.get("hooks", [])]
+        if all(w in present for w in wanted):
             continue
         # Drop any earlier Castra registration for this event, shell form included.
         for g in groups:
             g["hooks"] = [h for h in g.get("hooks", [])
                           if "castra-" not in h.get("command", "") + " ".join(h.get("args", []))]
         groups[:] = [g for g in groups if g.get("hooks")]
-        group = {"hooks": [{"type": "command", "command": pybin, "args": args}]}
+        group = {"hooks": wanted}
         if matcher:
             group["matcher"] = matcher
         groups.append(group)
@@ -139,6 +142,28 @@ def register(hook_dir: pathlib.Path, settings_path: pathlib.Path, dry: bool) -> 
     print("registered hooks:", ", ".join(added))
 
 
+def write_manifest(dry: bool) -> None:
+    """설치본이 어느 저장소에서 왔는지와 그때의 파일 해시를 남긴다.
+
+    이게 없으면 설치본이 정본보다 낡아도 아무도 모른다. 실제로 태세 훅이 옛 팩을
+    읽는 동안 검사는 저장소 팩을 대조하고 있었고, 우연히 발견하기 전까지
+    두 판본이 다르다는 사실이 드러나지 않았다.
+    """
+    if dry:
+        return
+    home = castra_home()
+    files = {}
+    for rel in sorted(list((SRC / "packs").glob("*.txt"))
+                      + list((SRC / "scripts").glob("castra_*.py"))):
+        files[f"{rel.parent.name}/{rel.name}"] = hashlib.sha256(rel.read_bytes()).hexdigest()[:16]
+    try:
+        (home / "manifest.json").write_text(
+            json.dumps({"source": str(SRC), "files": files}, indent=2) + "\n",
+            encoding="utf-8")
+    except OSError:
+        pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true",
@@ -146,6 +171,7 @@ def main() -> int:
     args = parser.parse_args()
 
     hook_dir, settings_path = install_files(args.dry_run)
+    write_manifest(args.dry_run)
     register(hook_dir, settings_path, args.dry_run)
 
     block = SRC / "templates" / "claude-md-block.md"
