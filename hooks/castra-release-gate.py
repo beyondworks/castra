@@ -42,7 +42,11 @@ def tool(name: str) -> list:
     """
     override = os.environ.get(f"CASTRA_{name.upper()}_BIN")
     if override:
-        return shlex.split(override)
+        # posix=True treats a backslash as an escape, so an unquoted Windows path
+        # comes back with every separator removed: C:\tools\gh.exe becomes
+        # C:toolsgh.exe. Split in Windows mode there and drop the quoting.
+        parts = shlex.split(override, posix=(os.name != "nt"))
+        return [t.strip('"') for t in parts]
     return [shutil.which(name) or name]
 
 

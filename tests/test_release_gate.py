@@ -28,7 +28,7 @@ def fake_env(tmp: pathlib.Path, runs, head=HEAD) -> dict:
         "import sys; sys.exit(1)\n" if runs is None
         else f"import json; print(json.dumps({runs!r}))\n",
         encoding="utf-8")
-    quote = lambda p: f'"{p}"' if " " in str(p) else str(p)
+    quote = lambda p: f'"{p}"'  # always quote: an unquoted Windows path loses its separators
     return {
         "CASTRA_GIT_BIN": f"{quote(sys.executable)} {quote(tmp / 'git.py')}",
         "CASTRA_GH_BIN": f"{quote(sys.executable)} {quote(tmp / 'gh.py')}",
