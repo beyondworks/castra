@@ -13,7 +13,10 @@ PreToolUse 훅. `git tag`, 태그 푸시, `gh release create` 를 가로채서 �
 아직 실행이 등록되지 않은 경우까지 거부하면, 만족시킬 수 없는 관문이 된다.
 """
 import json
+import os
 import re
+import shlex
+import shutil
 import subprocess
 import sys
 
@@ -29,6 +32,20 @@ TRIGGER = re.compile(
     r"|\bgh\s+release\s+create\b")
 
 
+def tool(name: str) -> list:
+    """실행할 명령의 앞부분. 환경변수로 덮어쓸 수 있다.
+
+    훅은 exec 형식으로 실행되므로 사용자의 셸 PATH 를 그대로 물려받지 않는다.
+    gh 가 PATH 에 없어 조회가 실패하면 게이트는 매번 확인으로 내려앉는다.
+    그래서 CASTRA_GIT_BIN / CASTRA_GH_BIN 으로 실제 경로를 줄 수 있게 둔다.
+    값은 인자를 포함해도 된다.
+    """
+    override = os.environ.get(f"CASTRA_{name.upper()}_BIN")
+    if override:
+        return shlex.split(override)
+    return [shutil.which(name) or name]
+
+
 def sh(args, cwd, timeout=25):
     try:
         p = subprocess.run(args, cwd=cwd or None, capture_output=True,
@@ -41,11 +58,11 @@ def sh(args, cwd, timeout=25):
 
 def decide(cwd: str) -> tuple:
     """(판정, 사유). 판정은 allow / deny / confirm."""
-    head = sh(["git", "rev-parse", "HEAD"], cwd)
+    head = sh(tool("git") + ["rev-parse", "HEAD"], cwd)
     if not head:
         return "confirm", "git 저장소를 확인하지 못했다. 발행 대상 커밋을 직접 확인하라."
 
-    raw = sh(["gh", "run", "list", "--limit", "25",
+    raw = sh(tool("gh") + ["run", "list", "--limit", "25",
               "--json", "headSha,status,conclusion,workflowName"], cwd)
     if raw is None:
         return "confirm", ("이 커밋의 CI 결과를 조회하지 못했다(gh 부재·네트워크·권한). "

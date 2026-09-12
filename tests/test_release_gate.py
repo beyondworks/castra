@@ -13,42 +13,32 @@ HOOK = ROOT / "hooks" / "castra-release-gate.py"
 HEAD = "a" * 40
 
 
-def fake_bin(tmp: pathlib.Path, runs, head=HEAD) -> pathlib.Path:
-    """git 과 gh 를 흉내내는 실행 파일을 PATH 앞에 둔다.
+def fake_env(tmp: pathlib.Path, runs, head=HEAD) -> dict:
+    """git 과 gh 를 스크립트로 대체해 환경변수로 주입한다.
 
-    네트워크나 실제 저장소 상태에 기대면 검사 자체가 환경에 따라 흔들린다.
+    PATH 앞에 셰임을 두는 방식은 Windows 에서 통하지 않는다. CreateProcess 는
+    PATHEXT 를 적용하지 않아 .bat 셰임을 건너뛰고 실제 git.exe 를 잡는다.
+    실제 저장소나 네트워크에 기대지 않으려면 주입이 유일하게 이식되는 방법이다.
     """
-    binv = tmp / "bin"
-    binv.mkdir()
-    bodies = {
-        "git": ("import sys\n"
-                f"print({head!r}) if sys.argv[1:3]==['rev-parse','HEAD'] else None\n"),
-        "gh": ("import sys; sys.exit(1)\n" if runs is None
-               else f"import json; print(json.dumps({runs!r}))\n"),
+    (tmp / "git.py").write_text(
+        "import sys\n"
+        f"print({head!r}) if sys.argv[1:3]==['rev-parse','HEAD'] else None\n",
+        encoding="utf-8")
+    (tmp / "gh.py").write_text(
+        "import sys; sys.exit(1)\n" if runs is None
+        else f"import json; print(json.dumps({runs!r}))\n",
+        encoding="utf-8")
+    quote = lambda p: f'"{p}"' if " " in str(p) else str(p)
+    return {
+        "CASTRA_GIT_BIN": f"{quote(sys.executable)} {quote(tmp / 'git.py')}",
+        "CASTRA_GH_BIN": f"{quote(sys.executable)} {quote(tmp / 'gh.py')}",
     }
-    for name, body in bodies.items():
-        script = binv / f"{name}.py"
-        script.write_text(body, encoding="utf-8")
-        if os.name == "nt":
-            # PATH lookup on Windows needs an executable extension; a shebang
-            # script is not one, which is why this check passed on macOS and
-            # failed on Windows.
-            (binv / f"{name}.bat").write_text(
-                f'@echo off\r\n"{sys.executable}" "%~dp0{name}.py" %*\r\n',
-                encoding="utf-8")
-        else:
-            launcher = binv / name
-            launcher.write_text(f"#!/bin/sh\nexec {sys.executable} \"$(dirname \"$0\")/{name}.py\" \"$@\"\n",
-                                encoding="utf-8")
-            launcher.chmod(0o755)
-    return binv
 
 
 def run(cmd: str, runs, head=HEAD) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         tmp = pathlib.Path(tmp)
-        binv = fake_bin(tmp, runs, head)
-        env = dict(os.environ, PATH=f"{binv}{os.pathsep}{os.environ['PATH']}")
+        env = dict(os.environ, **fake_env(tmp, runs, head))
         proc = subprocess.run(
             [sys.executable, str(HOOK)],
             input=json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash",
