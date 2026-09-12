@@ -2,3 +2,9 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# Local model transcripts and generated behavioral task state
+evals/messenger/runs/
+evals/messenger/*.json
+evals/messenger/*.jsonl
+evals/messenger/*.stderr

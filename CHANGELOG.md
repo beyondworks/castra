@@ -4,6 +4,17 @@ All notable changes to Castra are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-09-12
+
+### Changed
+- Ground repairs in the actual runtime and a discriminating observation; trace directly related defects through shared consumers and relevant persistence/failure/recovery transitions.
+- Use representative disposable fixtures and supported runtime surfaces before delegating feasible checks back to the user. Preserve permissions, user data and honest surface/test-count boundaries.
+
+### Added
+- `reframe` and `finish` recovery modes. Normal execution already follows their outcome criteria.
+- Bounded shared contract loader and per-session hash: a changed contract reaches an existing registered UserPromptSubmit hook once; unchanged ordinary turns add no pack. Explicit calls restore it, while `plain` opts out of injection.
+- Reproducible local Messenger surrogate evaluation with external functional assertions. It does not establish desktop/production correctness or model equivalence.
+
 ## [0.8.0] - 2026-09-12
 
 ### Fixed

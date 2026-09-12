@@ -27,6 +27,11 @@ HOOK_SCRIPTS = {
                     ("Edit|Write|NotebookEdit|Bash", "castra-budget.py")],
     "Stop": [(None, "castra-openloop.py")],
 }
+REQUIRED_HOME_FILES = (
+    "scripts/castra_runtime.py", "scripts/castra_notes.py",
+    "scripts/castra_guardian.py", "scripts/castra_contract.py",
+    "packs/execution-posture-pack.txt",
+)
 
 
 def claude_dir():
@@ -139,6 +144,9 @@ def merged_settings(settings, hook_dir):
 
 
 def source_files(home, cdir):
+    for relative in (*REQUIRED_HOME_FILES, "skills/castra/SKILL.md"):
+        if not (SRC / relative).is_file():
+            raise ValueError(f"source is incomplete: {relative} is missing")
     files = []
     for dirname, pattern, destination in (("scripts", "castra_*.py", home / "scripts"),
                                            ("packs", "*.txt", home / "packs"),
@@ -314,6 +322,30 @@ def validate_output(output, event, name):
             raise ValueError(f"invalid permissionDecision output: {name}")
 
 
+def validate_activation(output, event, name, session):
+    """A valid diagnostic is not evidence that the execution contract loaded."""
+    if name not in ("castra-posture.py", "castra-route.py"):
+        return
+    context = output
+    if name == "castra-route.py":
+        parsed = json.loads(output)
+        context = parsed.get("hookSpecificOutput", {}).get("additionalContext", "")
+        if parsed.get("systemMessage") or "Castra mode: verify." not in context:
+            raise ValueError("execution contract activation failed: explicit route unavailable")
+    start, end = "<castra_execution_posture>", "</castra_execution_posture>"
+    if context.count(start) != 1 or context.count(end) != 1:
+        raise ValueError(f"execution contract activation failed: {event}/{name}")
+    contract = context[context.index(start):context.index(end) + len(end)]
+    if not contract.endswith(end) or len(contract.encode("utf-8")) > 10 * 1024:
+        raise ValueError(f"invalid bounded execution contract: {name}")
+    if name == "castra-posture.py" and (
+            "Session id: " + json.dumps(session) not in context
+            or "Script directory: " not in context
+            or "Observed file states: " not in context
+            or "Scoped state restoration failed" in context):
+        raise ValueError("execution contract activation failed: scoped runtime restoration unavailable")
+
+
 def check_install():
     home, cdir = castra_home(), claude_dir()
     manifest = read_json(home / "manifest.json")
@@ -321,6 +353,9 @@ def check_install():
     if manifest.get("schema_version") != 2 or not managed:
         raise ValueError("no complete installation manifest; reinstall after checking local modifications")
     errors = []
+    for relative in REQUIRED_HOME_FILES:
+        if str(home / relative) not in managed:
+            errors.append(f"required dependency absent from managed manifest: {relative}")
     for entries in HOOK_SCRIPTS.values():
         for _, name in entries:
             if str(cdir / "hooks" / name) not in managed:
@@ -350,19 +385,23 @@ def check_install():
         for sub in ("scripts", "packs"):
             shutil.copytree(home / sub, tmp / "castra" / sub)
         payload = {"session_id": "castra-doctor", "cwd": directory,
-                   "prompt": "plain: show status only", "tool_name": "Bash",
+                   "prompt": "/castra verify", "tool_name": "Bash",
                    "tool_input": {"command": "pwd"}, "tool_response": {"stdout": directory, "exit_code": 0},
                    "stop_hook_active": False}
         count = 0
         for event, entries in HOOK_SCRIPTS.items():
             for _, name in entries:
                 payload["hook_event_name"] = event
+                # A separate unseen session exercises route emission, rather than
+                # accepting an empty result caused by SessionStart deduplication.
+                payload["session_id"] = "castra-doctor-route" if name == "castra-route.py" else "castra-doctor"
                 result = subprocess.run([interpreter(), str(cdir / "hooks" / name)],
                                         input=json.dumps(payload), capture_output=True, text=True,
                                         cwd=directory, env=env, timeout=15)
                 if result.returncode:
                     raise ValueError(f"harmless payload failed: {event}/{name} (exit {result.returncode})")
                 validate_output(result.stdout.strip(), event, name)
+                validate_activation(result.stdout.strip(), event, name, payload["session_id"])
                 count += 1
     print(f"PASS: {len(managed)} installed file hashes, registrations, {count} isolated hook payloads.")
 

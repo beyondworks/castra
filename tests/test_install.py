@@ -30,8 +30,10 @@ class InstallTests(unittest.TestCase):
         names = {n for entries in installer.HOOK_SCRIPTS.values() for _, n in entries}
         for name in names:
             self.put(self.src / 'hooks' / name, 'import sys\nsys.stdin.read()\n')
-        self.put(self.src / 'scripts/castra_notes.py', '# fixture\n')
-        self.put(self.src / 'packs/execution-posture-pack.txt', 'fixture\n')
+        for name in ('castra-posture.py', 'castra-route.py'):
+            self.put(self.src / 'hooks' / name, (ROOT / 'hooks' / name).read_text())
+        for relative in installer.REQUIRED_HOME_FILES:
+            self.put(self.src / relative, (ROOT / relative).read_text())
         self.put(self.src / 'skills/castra/SKILL.md', 'castra fixture\n')
         self.put(self.src / 'skills/thinking-map/SKILL.md', 'thinking fixture\n')
         self.put(self.src / 'VERSION', '0.7.0\n')
@@ -66,6 +68,18 @@ class InstallTests(unittest.TestCase):
         before = self.snapshot()
         with self.assertRaises(ValueError): installer.plan_install()
         self.assertEqual(before, self.snapshot())
+
+    def test_missing_required_dependencies_rejected_before_writes(self):
+        for relative in installer.REQUIRED_HOME_FILES:
+            with self.subTest(relative=relative):
+                path = self.src / relative
+                original = path.read_bytes()
+                path.unlink()
+                before = self.snapshot()
+                with self.assertRaisesRegex(ValueError, 'source is incomplete'):
+                    installer.plan_install()
+                self.assertEqual(before, self.snapshot())
+                path.write_bytes(original)
 
     def test_foreign_hooks_environment_permissions_preserved(self):
         foreign = {'type': 'command', 'command': 'echo castra-guardian.py'}
@@ -162,6 +176,49 @@ class InstallTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()): installer.check_install()
         self.assertEqual(before, self.snapshot())
         self.assertFalse(sentinel.exists())
+
+    def test_doctor_rejects_dependency_omitted_from_manifest(self):
+        self.install()
+        path = self.home / 'manifest.json'
+        manifest = json.loads(path.read_text())
+        helper = self.home / 'scripts/castra_contract.py'
+        del manifest['managed_files'][str(helper)]
+        helper.unlink()
+        path.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, 'required dependency absent'):
+            installer.check_install()
+
+    def test_doctor_rejects_missing_installed_contract_helper(self):
+        self.install()
+        (self.home / 'scripts/castra_contract.py').unlink()
+        with self.assertRaisesRegex(ValueError, 'missing or modified'):
+            installer.check_install()
+
+    def test_doctor_rejects_hash_matching_activation_failures(self):
+        # Matching bytes alone must not turn a broken installer source into PASS.
+        self.install()
+        for relative, content in (
+                ('scripts/castra_contract.py', '# missing contract_context\n'),
+                ('packs/execution-posture-pack.txt', 'invalid contract\n')):
+            with self.subTest(relative=relative):
+                path = self.home / relative
+                original = path.read_bytes()
+                manifest_path = self.home / 'manifest.json'
+                original_manifest = manifest_path.read_bytes()
+                path.write_text(content)
+                manifest = json.loads(original_manifest)
+                manifest['managed_files'][str(path)]['sha256'] = installer.digest(path.read_bytes())
+                manifest_path.write_text(json.dumps(manifest))
+                with self.assertRaisesRegex(ValueError, 'execution contract activation failed'):
+                    installer.check_install()
+                path.write_bytes(original)
+                manifest_path.write_bytes(original_manifest)
+
+    def test_doctor_rejects_route_diagnostic_or_missing_context(self):
+        for output in ('{}', json.dumps({'systemMessage': 'freshness is unverified'})):
+            with self.subTest(output=output):
+                with self.assertRaisesRegex(ValueError, 'activation failed'):
+                    installer.validate_activation(output, 'UserPromptSubmit', 'castra-route.py', 'doctor')
 
     def test_settings_edit_between_plan_and_apply_preserved(self):
         settings_path = self.cdir / 'settings.json'

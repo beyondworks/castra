@@ -4,16 +4,18 @@ A development workflow and runtime support package for Claude Code. Castra helps
 
 ## Workflow
 
-Use `/castra run <request>` after standalone installation, or `/castra:castra run <request>` in plugin mode. `castra: run <request>` also routes explicitly through UserPromptSubmit. Modes: `run`, `review`, `verify`, `resume`, `status`; `castra: plain` skips workflow routing without disabling permissions or erasing evidence.
+Use `/castra run <request>` after standalone installation, or `/castra:castra run <request>` in plugin mode. `castra: run <request>` also routes explicitly through UserPromptSubmit. Modes: `run`, `review`, `verify`, `reframe`, `finish`, `resume`, `status`; `castra: plain` skips workflow routing without disabling permissions or erasing evidence.
 
 The contract starts with the user's affected surface and a discriminating check. It preserves current authorization and steering, uses independent work where useful, distinguishes source edits from installed/runtime outcomes, and stops after relevant work is verified. It requests decisions and evidence, not a private reasoning transcript. Fable and Opus use the same contract and selected model; no family-based capability or window-size guesses.
+
+`castra: reframe <symptom>` restores the current contract and revisits the actual runtime and shared failure boundary. `castra: finish <task>` closes directly related omissions and relevant state/reload/failure transitions. Both preserve the original scope and authority. The ordinary run contract already uses these standards; the commands are recovery cues, not prerequisites for careful work.
 
 ## Runtime support
 
 | Mechanism | Actual behavior | Limit |
 |---|---|---|
 | SessionStart | Injects a compact contract, script path, session id, scoped state and checkpoint | Restored notes are prior evidence, not new authority |
-| UserPromptSubmit | Resets bounded recovery and routes anchored `castra:` requests | Casual mentions do not activate a workflow |
+| UserPromptSubmit | Resets recovery, refreshes changed contract once per session and routes anchored `castra:` requests | Unchanged ordinary turns add no pack; hash records emission, not compliance |
 | PostToolUse | Tracks supported edits; direct-script exits are observations only | Arbitrary shell writes and semantic coverage cannot be inferred |
 | Stop | Blocks once on the ordinary recovery path; reentry allows an honest unresolved report | Circuit breaker is not success; user cancellation remains authoritative |
 | Budget | Reads a bounded tail of this transcript, checks explicit capacity on prompts/tools | Last-response usage is an estimate; unknown capacity stays unknown |
@@ -49,7 +51,7 @@ python3 install.py --check
 
 This copies managed scripts/hooks/packs/skills and merges only Castra registrations. Existing unowned `thinking-map` skills are preserved. Modified/unowned managed destinations and symlinks are refused rather than overwritten. Backups and a rollback map are retained under `~/.castra/backups/`. v0.7 manifests omitted hooks: before migrating them, compare each installed hook with the previously committed source and add only those verified ownership hashes; do not adopt arbitrary files.
 
-Restart Claude Code for new hook registrations. The managed block in `templates/claude-md-block.md` can replace a previous Castra block; it is not another full pack. `--check` tests installation integrity and isolated hook payloads, **not actual Claude events or model behavior**.
+Restart Claude Code for new hook registrations. Sessions that already registered the route hook receive a changed contract at the next prompt; missing registrations cannot be hot-installed by a prompt. The managed block in `templates/claude-md-block.md` can replace a previous Castra block; it is not another full pack. `--check` tests installation integrity and isolated hook payloads, **not actual Claude events or model behavior**.
 
 **Plugin (separate session):**
 

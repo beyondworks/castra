@@ -16,10 +16,11 @@ HERE = pathlib.Path(__file__).resolve().parent
 # CASTRA_HOME is what the installer honours, so the hook has to honour it too;
 # otherwise a test or a second install reads a different pack than it writes.
 _HOME = pathlib.Path(os.environ.get("CASTRA_HOME") or (pathlib.Path.home() / ".castra"))
-CANDIDATES = (
-    HERE.parent / "packs" / "execution-posture-pack.txt",
-    _HOME / "packs" / "execution-posture-pack.txt",
-)
+SCRIPTS = next((path for path in (HERE.parent / "scripts", _HOME / "scripts")
+                if (path / "castra_runtime.py").is_file()), None)
+if SCRIPTS:
+    sys.path.insert(0, str(SCRIPTS))
+
 
 HEADER = "<castra_runtime_hint>"
 FOOTER = "</castra_runtime_hint>"
@@ -98,21 +99,18 @@ def drift_notice() -> str:
 
 
 def main() -> int:
-    pack = next((p for p in CANDIDATES if p.is_file()), None)
-    if pack is None:
-        return 0
-    try:
-        body = pack.read_text(encoding="utf-8", errors="replace").strip()
-    except OSError:
-        return 0
-    if not body:
-        return 0
     try:
         payload = json.load(sys.stdin)
     except (ValueError, OSError):
         payload = {}
     if not isinstance(payload, dict):
         payload = {}
+    try:
+        from castra_contract import contract_context
+        body = contract_context(payload, HERE, force=True, session_start=True)
+    except (OSError, ValueError, ImportError, TypeError):
+        print("Castra current execution contract could not be loaded or its session emission recorded; freshness is unverified.")
+        return 0
     print(body)
     runtime_hint(payload)
     notice = drift_notice()
