@@ -22,7 +22,7 @@ def fake_env(tmp: pathlib.Path, runs, head=HEAD) -> dict:
     """
     (tmp / "git.py").write_text(
         "import sys\n"
-        f"print({head!r}) if sys.argv[1:3]==['rev-parse','HEAD'] else None\n",
+        f"print({head!r}) if sys.argv[1]=='rev-parse' else None\n",
         encoding="utf-8")
     (tmp / "gh.py").write_text(
         "import sys; sys.exit(1)\n" if runs is None
@@ -54,7 +54,7 @@ def verdict(out: dict) -> str:
     hs = out.get("hookSpecificOutput") or {}
     if hs.get("permissionDecision") == "deny":
         return "deny"
-    if out.get("systemMessage"):
+    if hs.get("permissionDecision") == "ask":
         return "confirm"
     return "allow"
 
@@ -81,6 +81,20 @@ def main() -> int:
         ("ordinary push", "git push origin main", RED, "allow"),
         ("tag listing", "git tag --list", RED, "allow"),
         ("unrelated command", "ls -al", RED, "allow"),
+        ("leading gh repo", "gh --repo owner/repo release create v1", GREEN, "confirm"),
+        ("push format flag", "git push --porcelain origin v1.0.0", RED, "deny"),
+        ("push refspec", "git push origin HEAD:refs/tags/v1.0.0", RED, "deny"),
+        ("push explicit tag", "git push origin tag release-2026", RED, "deny"),
+        ("global config target uncertain", "git -c core.hooksPath=/tmp/empty tag v1", GREEN, "confirm"),
+        ("compound read", "git status; git diff", RED, "allow"),
+        ("empty tag listing", "git tag", RED, "allow"),
+        ("tag delete is not publication", "git tag -d v1", RED, "allow"),
+        ("quoted mention", "echo 'git tag v1'", RED, "allow"),
+        ("multiple refs uncertain", "git push origin --tags", GREEN, "confirm"),
+        ("target override", "gh release create v1 --target older", RED, "confirm"),
+        ("newest rerun wins", "git tag v1", GREEN + RED, "allow"),
+        ("latest failed wins", "git tag v1", RED + GREEN, "deny"),
+        ("malformed runs", "git tag v1", [42], "confirm"),
     ]
     for label, cmd, runs, want in cases:
         got = verdict(run(cmd, runs))

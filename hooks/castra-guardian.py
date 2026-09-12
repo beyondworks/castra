@@ -1,22 +1,9 @@
 #!/usr/bin/env python3
-"""castra-guardian — guardian_v2 를 실행 계층으로 재현하는 PreToolUse 훅.
+"""PreToolUse command-risk floor using documented permission decisions.
 
-정본(gpt-6-astra model_messages.guardian_v2)의 판정 구조를 그대로 옮긴다:
-
-  "Assess the current course of action, the previous five actions, and the
-   likely next two actions."
-  "Return high if ... any of the previous five actions had unknown
-   authorization or critical risk."
-
-정규식 한 줄 매칭이 아니라, 세션 기록(transcript_path)에서 직전 도구 호출을
-읽어 이력을 함께 본다. 상태는 파일이 아니라 기록에서 매번 재구성하므로
-세션이 바뀌어도 오염되지 않는다.
-
-출력: hookSpecificOutput.permissionDecision = allow | deny
-      deny 는 정본의 hand_off(에이전트가 최종 단계를 수행하지 않음)에만 쓴다.
-      confirm 등급은 차단하지 않고 사유를 붙여 통과시킨다(권한 UI 가 별도로 있다).
+This is a local heuristic, not a model policy replica or authorization oracle.
 """
-import json, pathlib, re, sys
+import json, pathlib, re, sys, os
 
 # Windows consoles default to a legacy code page, so any non-ASCII byte written
 # here raises UnicodeEncodeError and the hook dies without output — which looks
@@ -27,14 +14,18 @@ try:
 except (AttributeError, OSError):
     pass
 
-sys.path.insert(0, str(pathlib.Path.home() / ".castra" / "scripts"))
+HERE = pathlib.Path(__file__).resolve().parent
+for candidate in (HERE.parent / "scripts", pathlib.Path(os.environ.get("CASTRA_HOME") or pathlib.Path.home() / ".castra") / "scripts"):
+    if (candidate / "castra_guardian.py").is_file():
+        sys.path.insert(0, str(candidate))
+        break
 try:
     from castra_guardian import classify, ORDER
-except Exception:
-    print(json.dumps({}))
+except ImportError:
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask", "permissionDecisionReason": "Castra classifier unavailable; inspect installation before risky execution."}}))
     sys.exit(0)
 
-HISTORY_N = 5          # 정본: previous five actions
+HISTORY_N = 5          # bounded local history, advisory only
 STATE = ORDER          # hand_off 3 > confirm_at_action 2 > pre_approval 1 > not_required 0
 
 
@@ -45,7 +36,10 @@ def recent_commands(transcript: str, limit: int = HISTORY_N):
         return []
     out = []
     try:
-        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+        with p.open("rb") as handle:
+            handle.seek(0, 2)
+            handle.seek(max(0, handle.tell() - 262144))
+            lines = handle.read().decode("utf-8", errors="replace").splitlines()
     except Exception:
         return []
     for line in reversed(lines):
@@ -81,10 +75,13 @@ def main():
     except Exception:
         print(json.dumps({})); return
 
-    if payload.get("tool_name") != "Bash":
+    if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
         print(json.dumps({})); return
 
-    cmd = (payload.get("tool_input") or {}).get("command", "")
+    inp = payload.get("tool_input")
+    cmd = inp.get("command", "") if isinstance(inp, dict) else ""
+    if not isinstance(cmd, str):
+        print(json.dumps({})); return
     if not cmd.strip():
         print(json.dumps({})); return
 
@@ -100,7 +97,7 @@ def main():
     secrets = ", ".join(verdict["secret_risk"])
 
     if grade == "hand_off":
-        msg = f"guardian_v2: hand-off 등급. {reasons}."
+        msg = f"castra-guardian: hand-off 등급. {reasons}."
         if secrets:
             msg += f" 시크릿 위험: {secrets}."
         msg += " 에이전트가 최종 단계를 수행하지 않는다. 사용자가 직접 실행해야 한다."
@@ -113,13 +110,17 @@ def main():
         }))
         return
 
-    if grade == "confirm_at_action" or escalated:
-        note = f"guardian_v2: {grade}. {reasons}."
-        if secrets:
-            note += f" 시크릿 위험: {secrets}."
-        if escalated:
-            note += " 직전 5개 행동 중 hand-off 등급이 있었다. 경계를 유지하라."
-        print(json.dumps({"systemMessage": note}))
+    if grade == "confirm_at_action":
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse", "permissionDecision": "ask",
+            "permissionDecisionReason": f"castra-guardian: {reasons}. Use the platform's permission decision for this exact action.",
+        }}))
+        return
+    if grade == "pre_approval" or escalated:
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": "Castra risk advisory: retain specific existing user authorization; this heuristic does not grant it. " + reasons,
+        }}))
         return
 
     print(json.dumps({}))
