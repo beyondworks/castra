@@ -20,17 +20,27 @@ def fake_bin(tmp: pathlib.Path, runs, head=HEAD) -> pathlib.Path:
     """
     binv = tmp / "bin"
     binv.mkdir()
-    (binv / "git").write_text(
-        "#!/usr/bin/env python3\nimport sys\n"
-        f"print({head!r}) if sys.argv[1:3]==['rev-parse','HEAD'] else None\n",
-        encoding="utf-8")
-    if runs is None:
-        body = "import sys; sys.exit(1)"
-    else:
-        body = f"import json; print(json.dumps({runs!r}))"
-    (binv / "gh").write_text(f"#!/usr/bin/env python3\n{body}\n", encoding="utf-8")
-    for f in binv.iterdir():
-        f.chmod(0o755)
+    bodies = {
+        "git": ("import sys\n"
+                f"print({head!r}) if sys.argv[1:3]==['rev-parse','HEAD'] else None\n"),
+        "gh": ("import sys; sys.exit(1)\n" if runs is None
+               else f"import json; print(json.dumps({runs!r}))\n"),
+    }
+    for name, body in bodies.items():
+        script = binv / f"{name}.py"
+        script.write_text(body, encoding="utf-8")
+        if os.name == "nt":
+            # PATH lookup on Windows needs an executable extension; a shebang
+            # script is not one, which is why this check passed on macOS and
+            # failed on Windows.
+            (binv / f"{name}.bat").write_text(
+                f'@echo off\r\n"{sys.executable}" "%~dp0{name}.py" %*\r\n',
+                encoding="utf-8")
+        else:
+            launcher = binv / name
+            launcher.write_text(f"#!/bin/sh\nexec {sys.executable} \"$(dirname \"$0\")/{name}.py\" \"$@\"\n",
+                                encoding="utf-8")
+            launcher.chmod(0o755)
     return binv
 
 
@@ -68,24 +78,24 @@ OTHER = [{"headSha": "b" * 40, "status": "completed", "conclusion": "success", "
 def main() -> int:
     failures = []
     cases = [
-        # (설명, 명령, CI 상태, 기대)
-        ("CI 통과 후 태그", "git tag -a v1.0.0 -m x", GREEN, "allow"),
-        ("CI 실패인데 태그", "git tag -a v1.0.0 -m x", RED, "deny"),
-        ("CI 진행 중인데 태그", "git tag -a v1.0.0 -m x", PENDING, "deny"),
-        ("태그 푸시", "git push origin v1.0.0", RED, "deny"),
-        ("릴리스 직접 생성", "gh release create v1.0.0", RED, "deny"),
-        # 다른 커밋의 실행만 있는 경우: 최신 실행을 내 것으로 착각하지 않는다
-        ("다른 커밋 실행만 있음", "git tag -a v1.0.0 -m x", OTHER, "confirm"),
-        ("gh 사용 불가", "git tag -a v1.0.0 -m x", None, "confirm"),
-        # 관계없는 명령은 건드리지 않는다
-        ("일반 푸시", "git push origin main", RED, "allow"),
-        ("목록 조회", "git tag --list", RED, "allow"),
-        ("무관한 명령", "ls -al", RED, "allow"),
+        # (label, command, CI state, expected)
+        ("tag after green CI", "git tag -a v1.0.0 -m x", GREEN, "allow"),
+        ("tag on failing CI", "git tag -a v1.0.0 -m x", RED, "deny"),
+        ("tag while CI runs", "git tag -a v1.0.0 -m x", PENDING, "deny"),
+        ("tag push", "git push origin v1.0.0", RED, "deny"),
+        ("release create", "gh release create v1.0.0", RED, "deny"),
+        # only another commit has a run: the newest row is not your row
+        ("only another commit ran", "git tag -a v1.0.0 -m x", OTHER, "confirm"),
+        ("gh unavailable", "git tag -a v1.0.0 -m x", None, "confirm"),
+        # unrelated commands are untouched
+        ("ordinary push", "git push origin main", RED, "allow"),
+        ("tag listing", "git tag --list", RED, "allow"),
+        ("unrelated command", "ls -al", RED, "allow"),
     ]
     for label, cmd, runs, want in cases:
         got = verdict(run(cmd, runs))
         if got != want:
-            failures.append(f"{label}: {want} 기대, {got} 나옴")
+            failures.append(f"{label}: expected {want}, got {got}")
 
     for f in failures:
         print("FAIL", f)
