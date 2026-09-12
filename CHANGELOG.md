@@ -4,6 +4,33 @@ All notable changes to Castra are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-09-12
+
+Two sections added after a real incident: a cause was reported twice from reading
+code alone, and a three-minute experiment — broadcast one event, watch the screen —
+overturned it. The right conclusion was the opposite of the reported one, and the
+hour spent reading had also hidden a node timeout, a storage polling load, and an
+unanswered permission prompt sitting in plain view.
+
+### Added
+- **Reproduce first, and keep observing.** Given a symptom, the first action is to
+  look at where the symptom lives, not at the code. A hypothesis formed from reading
+  is only a tool for choosing the next observation, and the observation to run is the
+  one that would break it. Roughly ten minutes with one hypothesis and no movement is
+  the cue to stop and list the layer the symptoms share. The section names why this
+  fails — code is reachable and a screen is not, so the shortcut feels free — because
+  naming it is what interrupts it. It also says to check whether a run finished before
+  re-running it, since a re-run can overwrite the evidence that it succeeded.
+- **Naming where a fix reached.** "Fixed" is a claim about a place: source, installed
+  build, resident server, live database, edge function, remote device. A change that
+  has not reached the user's screen is not fixed, merging is not arrival, and every
+  fix closes with an observation at the place the symptom was first seen.
+
+These are rules rather than hooks because no event can observe whether a diagnosis
+came from a screen or from a file. They live in the injected pack, so they are in
+force without anyone opening a file — which is the only reason writing them down is
+worth doing at all.
+
 ## [0.5.1] - 2026-09-11
 
 ### Fixed

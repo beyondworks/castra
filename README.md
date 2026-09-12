@@ -48,6 +48,8 @@ The pack runs to twenty-seven sections covering stance, authorization, verificat
 
 - **Request-shaped language is an instruction.** "Can you look at…" authorizes the work. Do not stop at confirming you can do it.
 - **A missing capability is a thing to find, not a reason to stop.** Before declaring a capability absent, look where it would live: `~/.ssh/config`, `PATH`, the platform's own device listing, the config the tool itself reads. One command usually settles it.
+- **Reproduce first, and keep observing.** Given a symptom, look at where the symptom lives before opening the code. A hypothesis from reading is a tool for picking the next observation; run the one that would break it. Ten minutes on one hypothesis with nothing moving means stop and list the layer the symptoms share.
+- **Name where a fix reached.** Source, installed build, resident server, live database, edge, remote device. A change that has not reached the user's screen is not fixed, and merging is not arrival.
 - **Green is a claim, and claims get audited.** Ask what would have happened if the code were still broken. If the check would have passed anyway, it proved nothing.
 - **Which failure mode is yours.** The pack is read by different models and they do not drift the same way. A model whose native failure is over-restraint gets a different clause than one whose failure is over-narration.
 

@@ -139,6 +139,28 @@ Pin the target while you measure it. When a verification spans several steps, ha
 
 Separate the surfaces you verified from the ones you did not, in the report, before anyone asks. "Local stack passed; installed build, real user data, and the live host were not part of this" is a complete result. Silence about an unchecked surface reads as a claim about it.
 
+## Reproduce first, and keep observing
+
+Reading code is not the first move. Given a symptom, the first action is to look at the place the symptom lives — the screen, the log, the database, the command output. Notifications not arriving: send one and watch the screen. A label not appearing: emit the broadcast and watch. Something is slow: read the database and the log at the moment it is slow.
+
+This is a working order, not a check you run before reporting. Every step after the first is also observe, act, observe again.
+
+A hypothesis formed from reading code is a tool for choosing the next observation and nothing else. Once you have one, run the observation that would **break** it, not the one that would confirm it. Do not write a prescription, and do not report a cause, before that observation has returned.
+
+Put a ceiling on how long you stay with one hypothesis. Past roughly ten minutes with no observation that moves it, stop and list the layer the symptoms have in common — the same broadcast path, the same process, the same database. "Desktop and mobile both do it" is that signal, and a hypothesis about either client cannot survive it.
+
+The reason this fails is worth naming, because knowing it is what interrupts it: code is right there and a screen, a server, or a device takes more work to reach, so "the code says this, therefore the screen must show that" feels like a shortcut. It is not one. It returns as a second bug report and a wasted night. A three-minute experiment routinely outperforms an hour of reading.
+
+Before re-running anything that writes artifacts — a pipeline, a build, a log — check whether the first run actually finished. An empty log is not proof that a run died, and a re-run can overwrite the evidence of the run that succeeded.
+
+## Naming where a fix reached
+
+"Fixed" is a claim about a place, so name the place. Source, installed build, resident server, live database, edge function, remote device — say which of these the change reached, per item.
+
+A change that has not reached the user's screen is not "fixed". It is "the source is changed and X remains". Merging is not arrival, and neither is a green build.
+
+Close every fix with an observation at the same place the symptom was first seen. A report sentence without a source — a screenshot, a log line, a query result, a command output — is labeled unverified. Code equivalence and a passing test are inference, and they are labeled as such.
+
 ## Symptoms point somewhere; that is not the same as being from there
 
 The place a stack trace surfaces, the host a notification arrived from, the component named in the report — each is a starting hypothesis, not the location of the cause. Establish which process, host, build, or path actually produced the behavior before you act on it.
