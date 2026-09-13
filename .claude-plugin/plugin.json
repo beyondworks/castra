@@ -1,0 +1,9 @@
+{
+  "name": "castra",
+  "version": "0.9.0",
+  "description": "Evidence-backed execution, session continuity, and context controls for Claude Code.",
+  "author": {
+    "name": "Castra contributors"
+  },
+  "license": "MIT"
+}

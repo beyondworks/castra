@@ -1,187 +1,435 @@
 #!/usr/bin/env python3
-"""Castra installer. Runs the same way on macOS, Linux and Windows.
+"""Install standalone Castra hooks, or inspect their integrity with --check.
 
-Copies the pack, scripts, hooks and skill into place, then registers the hooks
-in Claude Code settings without disturbing hooks that are already there.
-
-Hooks are registered in exec form — Claude Code spawns the interpreter directly
-with no shell involved. Shell form would run through `sh -c` on macOS and Linux
-but through Git Bash on Windows, falling back to PowerShell when Git Bash is
-absent, so a shell-form registration is not portable. Exec form performs no
-variable expansion either, so every path written here is absolute.
-
-  python3 install.py            install
-  python3 install.py --dry-run  report what would change and touch nothing
+Use either this installer OR Claude Code's --plugin-dir mode, never both.
+Settings and managed files are validated before any installation writes.
 """
 import argparse
+import copy
+import datetime
 import hashlib
 import json
 import os
 import pathlib
+import re
+import shlex
 import shutil
+import subprocess
 import sys
+import tempfile
 
 SRC = pathlib.Path(__file__).resolve().parent
 HOOK_SCRIPTS = {
-    # SessionStart has no matcher on purpose: the posture has to be re-injected
-    # after a compaction, which replaces earlier context with a summary.
-    "SessionStart": (None, "castra-posture.py"),
-    "UserPromptSubmit": (None, "castra-budget.py"),
-    "PreToolUse": ("Bash", ("castra-guardian.py", "castra-release-gate.py")),
-    # Open loops are recorded from tool use itself. Asking the model to write
-    # them produced a call rate of zero, which left the Stop hook with nothing
-    # to block on.
-    "PostToolUse": ("Edit|Write|NotebookEdit|Bash", "castra-trace.py"),
-    "Stop": (None, "castra-openloop.py"),
+    "SessionStart": [(None, "castra-posture.py")],
+    "UserPromptSubmit": [(None, "castra-budget.py"), (None, "castra-route.py")],
+    "PreToolUse": [("Bash", "castra-guardian.py"), ("Bash", "castra-release-gate.py")],
+    "PostToolUse": [("Edit|Write|NotebookEdit|Bash", "castra-trace.py"),
+                    ("Edit|Write|NotebookEdit|Bash", "castra-budget.py")],
+    "Stop": [(None, "castra-openloop.py")],
 }
+REQUIRED_HOME_FILES = (
+    "scripts/castra_runtime.py", "scripts/castra_notes.py",
+    "scripts/castra_guardian.py", "scripts/castra_contract.py",
+    "packs/execution-posture-pack.txt",
+)
 
 
-def claude_dir() -> pathlib.Path:
-    override = os.environ.get("CLAUDE_CONFIG_DIR")
-    return pathlib.Path(override) if override else pathlib.Path.home() / ".claude"
+def claude_dir():
+    return pathlib.Path(os.environ.get("CLAUDE_CONFIG_DIR") or pathlib.Path.home() / ".claude").absolute()
 
 
-def castra_home() -> pathlib.Path:
-    override = os.environ.get("CASTRA_HOME")
-    return pathlib.Path(override) if override else pathlib.Path.home() / ".castra"
+def castra_home():
+    return pathlib.Path(os.environ.get("CASTRA_HOME") or pathlib.Path.home() / ".castra").absolute()
 
 
-def interpreter() -> str:
-    """Absolute path to the python that will run the hooks.
-
-    Exec form performs no PATH lookup, so this has to be a real path rather than
-    the name "python3". It must also be a path that survives a python upgrade:
-    resolving symlinks would pin something like
-    /opt/homebrew/Cellar/python@3.14/3.14.6/... which disappears on the next
-    patch release and takes the hooks down silently. So prefer the stable
-    PATH entry and fall back to the running interpreter, unresolved.
-
-    On Windows the PATH entry is often a Microsoft Store alias stub that cannot
-    be spawned, so the running interpreter is the safer choice there.
-    """
-    if os.name != "nt":
-        found = shutil.which("python3") or shutil.which("python")
-        if found:
-            return str(pathlib.Path(found).absolute())
-    return str(pathlib.Path(sys.executable).absolute())
+def interpreter():
+    found = (shutil.which("python3") or shutil.which("python")) if os.name != "nt" else None
+    return str(pathlib.Path(found or sys.executable).absolute())
 
 
-def copy_tree(files, dest: pathlib.Path, dry: bool) -> None:
-    if not dry:
-        dest.mkdir(parents=True, exist_ok=True)
-    for f in files:
-        if dry:
-            continue
-        shutil.copy2(f, dest / f.name)
-        if f.suffix == ".py":
-            target = dest / f.name
-            target.chmod(target.stat().st_mode | 0o111)
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
 
 
-def install_files(dry: bool) -> tuple:
-    home, cdir = castra_home(), claude_dir()
-    if not cdir.exists() and not dry:
-        raise SystemExit(f"error: {cdir} not found. Install Claude Code first.")
+def safe_path(path):
+    for item in (path, *path.parents):
+        if item.is_symlink():
+            raise ValueError(f"refusing symlink destination: {item}")
+    if path.exists() and not path.is_file():
+        raise ValueError(f"destination is not a regular file: {path}")
 
-    copy_tree(sorted((SRC / "scripts").glob("castra_*.py")), home / "scripts", dry)
-    copy_tree(sorted((SRC / "packs").glob("*.txt")), home / "packs", dry)
-    hook_dir = cdir / "hooks"
-    copy_tree(sorted((SRC / "hooks").glob("castra-*.py")), hook_dir, dry)
-    print(f"{'would install' if dry else 'installed'}: {home}")
-    print(f"{'would install' if dry else 'installed'}: {hook_dir}")
 
-    skill_dir = cdir / "skills" / "thinking-map"
-    if (skill_dir / "SKILL.md").exists():
-        print(f"skipped: {skill_dir / 'SKILL.md'} already exists, left untouched")
+def read_snapshot(path):
+    safe_path(path)
+    return path.read_bytes() if path.exists() else None
+
+
+def json_snapshot(content, path):
+    data = json.loads(content.decode("utf-8")) if content is not None else {}
+    if not isinstance(data, dict):
+        raise ValueError(f"expected JSON object: {path}")
+    return data
+
+
+def read_json(path):
+    return json_snapshot(read_snapshot(path), path)
+
+
+def validate_settings(settings):
+    hooks = settings.get("hooks", {})
+    if not isinstance(hooks, dict):
+        raise ValueError("settings.hooks must be an object")
+    for event, groups in hooks.items():
+        if not isinstance(groups, list):
+            raise ValueError(f"settings.hooks.{event} must be an array")
+        for group in groups:
+            if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
+                raise ValueError(f"invalid hook group: {event}")
+            if any(not isinstance(h, dict) for h in group["hooks"]):
+                raise ValueError(f"invalid hook handler: {event}")
+
+
+def registrations(hook_dir):
+    result = {}
+    for event, entries in HOOK_SCRIPTS.items():
+        groups = []
+        for matcher, name in entries:
+            group = {"hooks": [{"type": "command", "command": interpreter(),
+                                "args": [str(hook_dir / name)]}]}
+            if matcher:
+                group["matcher"] = matcher
+            groups.append(group)
+        result[event] = groups
+    return result
+
+
+def owned_hook(handler, hook_dir):
+    if handler.get("type") != "command":
+        return False
+    command, args = handler.get("command"), handler.get("args")
+    if not isinstance(command, str):
+        return False
+    if args is None:
+        try:
+            tokens = shlex.split(command)
+        except ValueError:
+            return False
+        if len(tokens) != 2:
+            return False
+        command, arg = tokens
+    elif isinstance(args, list) and len(args) == 1 and isinstance(args[0], str):
+        arg = args[0]
     else:
-        copy_tree(sorted((SRC / "skills" / "thinking-map").glob("SKILL*.md")), skill_dir, dry)
-        print(f"{'would install' if dry else 'installed'}: {skill_dir}")
-    return hook_dir, cdir / "settings.json"
+        return False
+    if not re.fullmatch(r"python(?:\d+(?:\.\d+)*)?(?:\.exe)?", pathlib.Path(command).name):
+        return False
+    names = {name for entries in HOOK_SCRIPTS.values() for _, name in entries}
+    return pathlib.Path(arg).expanduser() in {hook_dir / name for name in names}
 
 
-def register(hook_dir: pathlib.Path, settings_path: pathlib.Path, dry: bool) -> None:
-    try:
-        settings = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.exists() else {}
-    except json.JSONDecodeError:
-        raise SystemExit("error: settings.json is not valid JSON; not touching it.")
+def merged_settings(settings, hook_dir):
+    result = copy.deepcopy(settings)
+    hooks = result.setdefault("hooks", {})
+    # Remove exact Castra script invocations only; mentions in foreign commands stay.
+    for event, groups in list(hooks.items()):
+        kept = []
+        for group in groups:
+            handlers = [h for h in group["hooks"] if not owned_hook(h, hook_dir)]
+            if handlers or not group["hooks"]:
+                kept.append({**group, "hooks": handlers})
+        hooks[event] = kept
+    for event, groups in registrations(hook_dir).items():
+        hooks.setdefault(event, []).extend(groups)
+    return result
 
-    pybin = interpreter()
-    hooks = settings.setdefault("hooks", {})
-    added = []
-    for event, (matcher, scripts) in HOOK_SCRIPTS.items():
-        names = (scripts,) if isinstance(scripts, str) else scripts
-        wanted = [{"type": "command", "command": pybin, "args": [str(hook_dir / n)]}
-                  for n in names]
-        groups = hooks.setdefault(event, [])
-        present = [h for g in groups for h in g.get("hooks", [])]
-        if all(w in present for w in wanted):
+
+def source_files(home, cdir):
+    for relative in (*REQUIRED_HOME_FILES, "skills/castra/SKILL.md"):
+        if not (SRC / relative).is_file():
+            raise ValueError(f"source is incomplete: {relative} is missing")
+    files = []
+    for dirname, pattern, destination in (("scripts", "castra_*.py", home / "scripts"),
+                                           ("packs", "*.txt", home / "packs"),
+                                           ("hooks", "castra-*.py", cdir / "hooks")):
+        for source in sorted((SRC / dirname).glob(pattern)):
+            files.append((source, destination / source.name))
+    for skill in ("thinking-map", "castra"):
+        for source in sorted((SRC / "skills" / skill).rglob("*")):
+            if source.is_file() and "__pycache__" not in source.parts:
+                files.append((source, cdir / "skills" / skill / source.relative_to(SRC / "skills" / skill)))
+    required = {name for entries in HOOK_SCRIPTS.values() for _, name in entries}
+    if not required.issubset({s.name for s, _ in files}):
+        raise ValueError("source is incomplete: a registered hook is missing")
+    if not (SRC / "skills/castra/SKILL.md").is_file():
+        raise ValueError("source is incomplete: skills/castra/SKILL.md is missing")
+    return files
+
+
+def plan_install():
+    home, cdir = castra_home(), claude_dir()
+    settings_path, manifest_path = cdir / "settings.json", home / "manifest.json"
+    originals = {settings_path: read_snapshot(settings_path), manifest_path: read_snapshot(manifest_path)}
+    settings = json_snapshot(originals[settings_path], settings_path)
+    validate_settings(settings)
+    enabled = settings.get("enabledPlugins", {})
+    if isinstance(enabled, dict) and any(value is True and (name == "castra" or name.startswith("castra@"))
+                                         for name, value in enabled.items()):
+        raise ValueError("Castra plugin is enabled; choose plugin mode or disable it before standalone installation")
+    manifest = json_snapshot(originals[manifest_path], manifest_path)
+    managed = manifest.get("managed_files", {})
+    if not isinstance(managed, dict) or any(not isinstance(value, dict) for value in managed.values()):
+        raise ValueError("manifest.managed_files must contain file metadata objects")
+    legacy = manifest.get("files", {})
+    files, skipped = {}, []
+    source_list = source_files(home, cdir)
+    # An unowned thinking-map is a user's skill, including translated companions.
+    thinking_dir = cdir / "skills/thinking-map"
+    preserve_thinking = thinking_dir.exists() and not any(
+        str(thinking_dir / p.relative_to(SRC / "skills/thinking-map")) in managed
+        for p in (SRC / "skills/thinking-map").rglob("*") if p.is_file())
+    for source, target in source_list:
+        if preserve_thinking and target.is_relative_to(thinking_dir):
+            skipped.append(str(target))
             continue
-        # Drop any earlier Castra registration for this event, shell form included.
-        for g in groups:
-            g["hooks"] = [h for h in g.get("hooks", [])
-                          if "castra-" not in h.get("command", "") + " ".join(h.get("args", []))]
-        groups[:] = [g for g in groups if g.get("hooks")]
-        group = {"hooks": wanted}
-        if matcher:
-            group["matcher"] = matcher
-        groups.append(group)
-        added.append(event)
+        originals[target] = read_snapshot(target)
+        content = source.read_bytes()
+        if originals[target] is not None and originals[target] != content:
+            old_hash = digest(originals[target])
+            expected = managed.get(str(target), {}).get("sha256")
+            legacy_hash = legacy.get(str(source.relative_to(SRC))) if isinstance(legacy, dict) else None
+            if old_hash != expected and not (isinstance(legacy_hash, str) and len(legacy_hash) >= 16
+                                               and old_hash.startswith(legacy_hash)):
+                raise ValueError(f"unowned or modified file would be overwritten: {target}")
+        files[target] = content
+    merged = merged_settings(settings, cdir / "hooks")
+    files[settings_path] = (json.dumps(merged, ensure_ascii=False, indent=2) + "\n").encode()
+    new_manifest = {
+        "schema_version": 2, "mode": "standalone", "source": str(SRC),
+        "version": (SRC / "VERSION").read_text().strip(),
+        "managed_files": {str(p): {"sha256": digest(data)} for p, data in files.items()
+                          if p != settings_path},
+        "registrations": registrations(cdir / "hooks"),
+        "skipped_unowned": skipped,
+    }
+    files[manifest_path] = (json.dumps(new_manifest, indent=2) + "\n").encode()
+    for path in files:
+        safe_path(path)
+    changes = {p: data for p, data in files.items() if originals[p] != data}
+    return changes, new_manifest, originals
 
-    if not added:
-        print("hooks already registered; settings.json untouched")
-        return
-    if dry:
-        print("would register hooks:", ", ".join(added))
-        return
-    if settings_path.exists():
-        backup = settings_path.with_suffix(".json.castra-backup")
-        backup.write_text(settings_path.read_text(encoding="utf-8"), encoding="utf-8")
-        print(f"backed up: {backup}")
-    settings_path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n",
-                             encoding="utf-8")
-    print("registered hooks:", ", ".join(added))
 
-
-def write_manifest(dry: bool) -> None:
-    """설치본이 어느 저장소에서 왔는지와 그때의 파일 해시를 남긴다.
-
-    이게 없으면 설치본이 정본보다 낡아도 아무도 모른다. 실제로 태세 훅이 옛 팩을
-    읽는 동안 검사는 저장소 팩을 대조하고 있었고, 우연히 발견하기 전까지
-    두 판본이 다르다는 사실이 드러나지 않았다.
-    """
-    if dry:
-        return
-    home = castra_home()
-    files = {}
-    for rel in sorted(list((SRC / "packs").glob("*.txt"))
-                      + list((SRC / "scripts").glob("castra_*.py"))):
-        files[f"{rel.parent.name}/{rel.name}"] = hashlib.sha256(rel.read_bytes()).hexdigest()[:16]
+def atomic_write(path, content):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".castra-", dir=path.parent)
     try:
-        (home / "manifest.json").write_text(
-            json.dumps({"source": str(SRC), "files": files}, indent=2) + "\n",
-            encoding="utf-8")
-    except OSError:
-        pass
+        with os.fdopen(fd, "wb") as output:
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+        if path.exists():
+            os.chmod(temporary, path.stat().st_mode & 0o777)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
-def main() -> int:
+def apply_changes(changes, expected):
+    if not set(changes).issubset(expected):
+        raise ValueError("installation changes require preflight snapshots")
+    # Compare against the same bytes used for validation and settings merge,
+    # before creating backups or writing any target. Re-reading here as the
+    # baseline would silently overwrite a user's edit made after planning.
+    for path, before in expected.items():
+        if read_snapshot(path) != before:
+            raise ValueError(f"destination changed since preflight: {path}")
+    if not changes:
+        print("Castra is already installed; no files changed.")
+        return
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    backup = castra_home() / "backups" / stamp
+    safe_path(backup / "rollback.json")
+    originals = {path: expected[path] for path in changes}
+    report = {"status": "prepared", "files": []}
+    for number, (path, content) in enumerate(originals.items()):
+        saved = backup / f"{number:04d}.before"
+        if content is not None:
+            atomic_write(saved, content)
+        report["files"].append({"path": str(path), "backup": str(saved) if content is not None else None,
+                                "before_sha256": digest(content) if content is not None else None,
+                                "after_sha256": digest(changes[path])})
+    report_path = backup / "rollback.json"
+    atomic_write(report_path, (json.dumps(report, indent=2) + "\n").encode())
+    applied = []
+    try:
+        for path, content in changes.items():
+            safe_path(path)
+            # Avoid overwriting an edit made since preflight/backup.
+            observed = path.read_bytes() if path.exists() else None
+            if observed != originals[path]:
+                raise ValueError(f"destination changed during install: {path}")
+            atomic_write(path, content)
+            applied.append(path)
+    except Exception:
+        conflicts = []
+        for path in reversed(applied):
+            current = path.read_bytes() if path.is_file() and not path.is_symlink() else None
+            if path.is_symlink() or current != changes[path]:
+                conflicts.append(str(path))
+                continue
+            if originals[path] is None:
+                path.unlink()
+            else:
+                atomic_write(path, originals[path])
+        report["status"] = "rollback_conflict" if conflicts else "rolled_back"
+        report["preserved_concurrent_changes"] = conflicts
+        atomic_write(report_path, (json.dumps(report, indent=2) + "\n").encode())
+        print(f"Installation failed; rollback status {report['status']}; report: {report_path}", file=sys.stderr)
+        raise
+    report["status"] = "installed"
+    atomic_write(report_path, (json.dumps(report, indent=2) + "\n").encode())
+    print(f"Installed {len(changes)} changed files. Backup and rollback map: {report_path}")
+
+
+
+def validate_output(output, event, name):
+    if not output:
+        return
+    if not output.startswith("{"):
+        if event == "SessionStart":
+            return
+        raise ValueError(f"unexpected non-JSON hook output: {event}/{name}")
+    parsed = json.loads(output)
+    if not isinstance(parsed, dict):
+        raise ValueError(f"hook output must be an object: {name}")
+    for key in ("continue", "suppressOutput"):
+        if key in parsed and not isinstance(parsed[key], bool):
+            raise ValueError(f"invalid {key} output: {name}")
+    for key in ("reason", "stopReason", "systemMessage"):
+        if key in parsed and not isinstance(parsed[key], str):
+            raise ValueError(f"invalid {key} output: {name}")
+    if "decision" in parsed and parsed["decision"] not in ("approve", "block"):
+        raise ValueError(f"invalid decision output: {name}")
+    specific = parsed.get("hookSpecificOutput")
+    if specific is not None:
+        if not isinstance(specific, dict) or specific.get("hookEventName") != event:
+            raise ValueError(f"wrong hook output event schema: {name}/{event}")
+        for key in ("additionalContext", "permissionDecisionReason"):
+            if key in specific and not isinstance(specific[key], str):
+                raise ValueError(f"invalid {key} output: {name}")
+        if "permissionDecision" in specific and (event != "PreToolUse" or
+                                                  specific["permissionDecision"] not in ("allow", "deny", "ask")):
+            raise ValueError(f"invalid permissionDecision output: {name}")
+
+
+def validate_activation(output, event, name, session):
+    """A valid diagnostic is not evidence that the execution contract loaded."""
+    if name not in ("castra-posture.py", "castra-route.py"):
+        return
+    context = output
+    if name == "castra-route.py":
+        parsed = json.loads(output)
+        context = parsed.get("hookSpecificOutput", {}).get("additionalContext", "")
+        if parsed.get("systemMessage") or "Castra mode: verify." not in context:
+            raise ValueError("execution contract activation failed: explicit route unavailable")
+    start, end = "<castra_execution_posture>", "</castra_execution_posture>"
+    if context.count(start) != 1 or context.count(end) != 1:
+        raise ValueError(f"execution contract activation failed: {event}/{name}")
+    contract = context[context.index(start):context.index(end) + len(end)]
+    if not contract.endswith(end) or len(contract.encode("utf-8")) > 10 * 1024:
+        raise ValueError(f"invalid bounded execution contract: {name}")
+    if name == "castra-posture.py" and (
+            "Session id: " + json.dumps(session) not in context
+            or "Script directory: " not in context
+            or "Observed file states: " not in context
+            or "Scoped state restoration failed" in context):
+        raise ValueError("execution contract activation failed: scoped runtime restoration unavailable")
+
+
+def check_install():
+    home, cdir = castra_home(), claude_dir()
+    manifest = read_json(home / "manifest.json")
+    managed = manifest.get("managed_files", {})
+    if manifest.get("schema_version") != 2 or not managed:
+        raise ValueError("no complete installation manifest; reinstall after checking local modifications")
+    errors = []
+    for relative in REQUIRED_HOME_FILES:
+        if str(home / relative) not in managed:
+            errors.append(f"required dependency absent from managed manifest: {relative}")
+    for entries in HOOK_SCRIPTS.values():
+        for _, name in entries:
+            if str(cdir / "hooks" / name) not in managed:
+                errors.append(f"registered hook absent from managed manifest: {name}")
+    for name, metadata in managed.items():
+        if not isinstance(metadata, dict):
+            raise ValueError(f"invalid managed manifest metadata: {name}")
+        path = pathlib.Path(name)
+        safe_path(path)
+        if not path.is_file() or digest(path.read_bytes()) != metadata.get("sha256"):
+            errors.append(f"missing or modified managed file: {path}")
+    settings = read_json(cdir / "settings.json")
+    validate_settings(settings)
+    for event, groups in manifest.get("registrations", {}).items():
+        for group in groups:
+            if group not in settings.get("hooks", {}).get(event, []):
+                errors.append(f"registration missing or changed: {event}")
+    if errors:
+        raise ValueError("\n".join(errors))
+    # Only our allowlisted installed entry points run. State lives in a temporary
+    # home, never the user's current session. Foreign hooks are never executed.
+    with tempfile.TemporaryDirectory(prefix="castra-doctor-") as directory:
+        tmp = pathlib.Path(directory)
+        env = {**os.environ, "HOME": directory, "USERPROFILE": directory,
+               "CLAUDE_CONFIG_DIR": str(tmp / "claude"), "CASTRA_HOME": str(tmp / "castra"),
+               "PYTHONDONTWRITEBYTECODE": "1"}
+        for sub in ("scripts", "packs"):
+            shutil.copytree(home / sub, tmp / "castra" / sub)
+        payload = {"session_id": "castra-doctor", "cwd": directory,
+                   "prompt": "/castra verify", "tool_name": "Bash",
+                   "tool_input": {"command": "pwd"}, "tool_response": {"stdout": directory, "exit_code": 0},
+                   "stop_hook_active": False}
+        count = 0
+        for event, entries in HOOK_SCRIPTS.items():
+            for _, name in entries:
+                payload["hook_event_name"] = event
+                # A separate unseen session exercises route emission, rather than
+                # accepting an empty result caused by SessionStart deduplication.
+                payload["session_id"] = "castra-doctor-route" if name == "castra-route.py" else "castra-doctor"
+                result = subprocess.run([interpreter(), str(cdir / "hooks" / name)],
+                                        input=json.dumps(payload), capture_output=True, text=True,
+                                        cwd=directory, env=env, timeout=15)
+                if result.returncode:
+                    raise ValueError(f"harmless payload failed: {event}/{name} (exit {result.returncode})")
+                validate_output(result.stdout.strip(), event, name)
+                validate_activation(result.stdout.strip(), event, name, payload["session_id"])
+                count += 1
+    print(f"PASS: {len(managed)} installed file hashes, registrations, {count} isolated hook payloads.")
+
+
+def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dry-run", action="store_true",
-                        help="report what would change without writing anything")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true")
+    mode.add_argument("--check", action="store_true", help="read-only installed integrity and isolated hook checks")
     args = parser.parse_args()
-
-    hook_dir, settings_path = install_files(args.dry_run)
-    write_manifest(args.dry_run)
-    register(hook_dir, settings_path, args.dry_run)
-
-    block = SRC / "templates" / "claude-md-block.md"
-    print(f"""
-Next, add the routing block to your CLAUDE.md:
-    {block}
-
-Then restart Claude Code once so the hook registration is picked up.
-Verify with: {interpreter()} {SRC / 'tests' / 'run.py'}""")
-    return 0
+    try:
+        if args.check:
+            check_install()
+        else:
+            changes, manifest, originals = plan_install()
+            if args.dry_run:
+                print(f"Would change {len(changes)} files; no writes performed.")
+                for path in changes:
+                    print(path)
+            else:
+                apply_changes(changes, originals)
+            for path in manifest["skipped_unowned"]:
+                print(f"Preserved unowned skill: {path}")
+            print("Standalone mode: do not also load this directory as a plugin. Restart Claude Code after installation.")
+        return 0
+    except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

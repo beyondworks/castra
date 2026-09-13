@@ -4,6 +4,37 @@ All notable changes to Castra are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-09-12
+
+### Changed
+- Ground repairs in the actual runtime and a discriminating observation; trace directly related defects through shared consumers and relevant persistence/failure/recovery transitions.
+- Use representative disposable fixtures and supported runtime surfaces before delegating feasible checks back to the user. Preserve permissions, user data and honest surface/test-count boundaries.
+
+### Added
+- `reframe` and `finish` recovery modes. Normal execution already follows their outcome criteria.
+- Bounded shared contract loader and per-session hash: a changed contract reaches an existing registered UserPromptSubmit hook once; unchanged ordinary turns add no pack. Explicit calls restore it, while `plain` opts out of injection.
+- Reproducible local Messenger surrogate evaluation with external functional assertions. It does not establish desktop/production correctness or model equivalence.
+
+## [0.8.0] - 2026-09-12
+
+### Fixed
+- Stop uses the documented top-level block decision and session/turn-scoped recovery instead of unsupported fields and an absent prompt id.
+- Failed or merely mentioned commands no longer clear pending edits. Re-edits invalidate file-hash evidence; concurrent sessions and hook writers are isolated.
+- Budget checks no longer infer capacity from model names/history or read another session's latest transcript. Compaction invalidates earlier usage.
+- Guardian confirmation uses permission `ask`; release checks resolve explicit targets, ignore tag listing and consider the latest available run per workflow.
+- Standalone hooks honor their installed script path. Installer preflights before copying, preserves unrelated settings/skills and creates rollback manifests.
+
+### Added
+- `/castra` standalone and `/castra:castra` plugin skill; explicit `castra:` routing with run/review/verify/resume/status/plain modes.
+- Real plugin manifest and hooks registry, without enabling a second copy alongside standalone hooks.
+- `castra_runtime.py status/verify/defer/block`: scoped file hashes, exit/time evidence, bounded redacted diagnostic output, explicit unresolved states.
+- Scoped bounded checkpoint restoration at SessionStart including compact/resume, and budget advisories during tool loops.
+- Installed-file integrity and isolated hook checks via `install.py --check`.
+
+### Changed
+- Replaced the long model-stereotype pack with a compact observable-work contract. No private system prompt provenance or model-equivalence claim.
+- Automatic execution observations do not close pending changes; explicit verification does not prove semantic test coverage, production arrival or complete shell-write detection. Existing historical unassigned notes/loops remain available but are not adopted into other sessions.
+
 ## [0.7.0] - 2026-09-12
 
 Six rules drawn from failures observed in one session, split by whether an event

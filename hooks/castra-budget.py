@@ -1,116 +1,74 @@
 #!/usr/bin/env python3
-"""castra-budget — inject a context-budget reminder at two thresholds.
+"""Advisory budget checks for UserPromptSubmit and PostToolUse.
 
-A UserPromptSubmit hook. Reads the session transcript, works out how much of
-the context window is occupied, and prints an instruction when the remaining
-budget crosses a threshold. Silence means the budget is healthy.
-
-Occupancy comes from the transcript's own usage records rather than a character
-estimate, and the window size is detected from the model id and the largest
-occupancy that model has been observed to reach. Set CASTRA_CONTEXT_WINDOW to
-override the detected window.
-
-Thresholds mirror a two-stage budget policy: warn with room to act, then stop.
-
-Written in Python rather than shell so the same file runs on macOS, Linux and
-Windows. Claude Code runs shell-form hooks through Git Bash on Windows, or
-PowerShell when Git Bash is absent, so a .sh hook is not portable.
+Uses only this hook's transcript_path, bounded last-response usage records and
+explicit capacity. Cannot create a session, measure pending input or compel a
+compaction. No transcript contents are emitted.
 """
 import json
 import os
 import pathlib
 import sys
 
-# Windows consoles default to a legacy code page, so any non-ASCII byte written
-# here raises UnicodeEncodeError and the hook dies without output — which looks
-# exactly like a hook that decided to do nothing. Force UTF-8, and escape
-# non-ASCII in the JSON as well so the output survives either way.
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except (AttributeError, OSError):
     pass
 
 HERE = pathlib.Path(__file__).resolve().parent
-for candidate in (pathlib.Path.home() / ".castra" / "scripts", HERE.parent / "scripts"):
+for candidate in (HERE.parent / "scripts", pathlib.Path(os.environ.get("CASTRA_HOME", str(pathlib.Path.home() / ".castra"))) / "scripts"):
     if (candidate / "castra_notes.py").exists():
         sys.path.insert(0, str(candidate))
         break
-
 try:
     from castra_notes import detect_window, read_window_usage
 except ImportError:
     raise SystemExit(0)
 
-WARN_RATIO = 0.06   # remaining share at which to checkpoint before the next step
-CRIT_RATIO = 0.02   # remaining share at which to stop and hand off
 
-WARN_MESSAGE = """<context_window_reminder>
-The context budget is running low (about {shown:,} tokens left). Write a
-checkpoint with castra_notes.py before starting the next substantial step, and
-prune entries that have gone stale while you are there.
-</context_window_reminder>"""
-
-CRIT_MESSAGE = """<context_window_reminder>
-The context window is effectively gone (about {shown:,} tokens left). Do not
-continue the task in this window and do not compose a final answer here.
-Call castra_notes.py checkpoint exactly once, recording the goal, decisions,
-progress, what you learned, the next step, and enough of a pointer to each open
-user request that a fresh window could pick it up cold. Then say only that you
-have done so and continue in a new window. A clean handoff beats a truncated
-answer.
-</context_window_reminder>"""
+def resolve_transcript(payload):
+    raw = payload.get("transcript_path")
+    if not isinstance(raw, str) or not raw:
+        return None
+    path = pathlib.Path(raw).expanduser()
+    return path if path.is_file() else None
 
 
-def newest_transcript() -> pathlib.Path | None:
-    root = pathlib.Path.home() / ".claude" / "projects"
-    files = [p for p in root.glob("*/*.jsonl")] if root.exists() else []
-    return max(files, key=lambda p: p.stat().st_mtime) if files else None
-
-
-def resolve_transcript(payload: dict) -> pathlib.Path | None:
-    raw = payload.get("transcript_path") or ""
-    if raw:
-        path = pathlib.Path(raw).expanduser()
-        if path.is_file():
-            return path
-    return newest_transcript()
-
-
-def main() -> int:
+def main():
     try:
-        payload = json.loads(sys.stdin.read() or "{}")
-    except (json.JSONDecodeError, OSError):
-        payload = {}
+        payload = json.loads(sys.stdin.read(1048576) or "{}")
+    except (ValueError, OSError):
+        return 0
     if not isinstance(payload, dict):
-        payload = {}
-
+        return 0
     transcript = resolve_transcript(payload)
     if transcript is None:
         return 0
-
     used = read_window_usage(transcript)
-    if used <= 0:
+    window, _ = detect_window()
+    if not window:
+        # Missing configuration is unchanged across tool calls; avoid repeating
+        # an advisory that itself consumes context during an autonomous run.
+        if payload.get("hook_event_name") == "PostToolUse":
+            return 0
+        message = "Context capacity is unknown; no remaining-budget claim is available. Set CASTRA_CONTEXT_WINDOW only to a verified capacity."
+    elif not used:
         return 0
-
-    override = os.environ.get("CASTRA_CONTEXT_WINDOW", "").strip()
-    try:
-        window = int(override) if override else 0
-    except ValueError:
-        window = 0
-    if window <= 0:
-        window = detect_window(transcript)[0]
-    if window <= 0:
+    elif window - used <= window * .02:
+        message = (f"Estimated context remaining is critically low (about {max(window-used, 0):,} tokens). "
+                   "Save an agent-authored checkpoint with goal, progress, open requests, evidence pointers and next step before substantial work. "
+                   "Use the runtime's supported compaction/resume controls when needed; this advisory cannot create a fresh session.")
+    elif window - used <= window * .06:
+        message = (f"Estimated context remaining is running low (about {max(window-used, 0):,} tokens). "
+                   "Save an agent-authored checkpoint before the next substantial step.")
+    else:
         return 0
-
-    remaining = window - used
-    # An undersized window estimate makes this negative. The comparison uses the
-    # raw figure; the number shown never drops below zero.
-    shown = max(remaining, 0)
-
-    if remaining <= window * CRIT_RATIO:
-        print(CRIT_MESSAGE.format(shown=shown))
-    elif remaining <= window * WARN_RATIO:
-        print(WARN_MESSAGE.format(shown=shown))
+    context = ("<context_window_reminder>\n" + message +
+               "\nUsage is the last recorded response estimate, not live remaining capacity; pending input and intervening tools are uncounted.\n</context_window_reminder>")
+    if payload.get("hook_event_name") == "PostToolUse":
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": context}}))
+    else:
+        print(context)
     return 0
 
 

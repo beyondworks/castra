@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
-"""castra_guardian — Astra의 guardian_v2 분류기 대체.
+"""Local command classifier: known hazardous patterns and authorization reminders.
 
-실행 직전 명령을 받아 위험도와 필요한 확인 단계를 판정한다.
-Astra 의 confirmation_policies 4단계(hand_off / confirm_at_action /
-pre_approval / not_required)를 셸 명령 영역으로 옮긴 것이다.
-
-  classify "<명령>"      단일 명령 판정
-  --json                 기계 판독용 출력
-  --stdin                여러 줄을 한꺼번에 판정
-
-종료코드: 0=진행가능, 2=확인필요, 3=사용자가직접(hand-off)
+A heuristic floor, not a sandbox, full shell parser, or model policy replica.
+Exit codes: 0 ordinary; 1 existing authority required; 2 platform confirmation; 3 deny.
 """
 import argparse, json, re, sys
 
@@ -180,7 +173,7 @@ def render(r: dict):
 
 
 def main():
-    p = argparse.ArgumentParser(prog="astra_guardian", description=__doc__,
+    p = argparse.ArgumentParser(prog="castra_guardian", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("command", nargs="?", default="")
     p.add_argument("--json", action="store_true")
