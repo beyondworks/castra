@@ -24,7 +24,8 @@ class NotesTests(unittest.TestCase):
 
     def cli(self, *args, session="alpha"):
         return subprocess.run([sys.executable, str(CLI), *args], cwd=self.cwd,
-                              env=dict(self.env, CLAUDE_SESSION_ID=session), text=True, capture_output=True, check=True).stdout
+                              env=dict(self.env, CLAUDE_SESSION_ID=session), text=True, encoding="utf-8",
+                              errors="replace", capture_output=True, check=True).stdout
 
     def test_session_separation_and_explicit_override(self):
         self.cli("checkpoint", "--goal", "Alpha", "--next", "Test")
@@ -74,8 +75,11 @@ class NotesTests(unittest.TestCase):
             path.write_text('{bad\n[]\nnull\n' + json.dumps({"goal": "valid"}) + '\n')
             self.assertEqual(notes.latest_checkpoint(self.cwd, "alpha")["goal"], "valid")
         before = path.read_bytes()
-        proc = subprocess.run([sys.executable, str(CLI), "checkpoint", "--goal", "x" * 33000],
-                              cwd=self.cwd, env=self.env, text=True, capture_output=True)
+        # Over the 32,000-byte limit while staying under the Windows command-line
+        # limit of 32,767 characters: 11,000 three-byte characters are 33,000 bytes.
+        proc = subprocess.run([sys.executable, str(CLI), "checkpoint", "--goal", "\uac00" * 11000],
+                              cwd=self.cwd, env=self.env, text=True, encoding="utf-8",
+                              errors="replace", capture_output=True)
         self.assertNotEqual(proc.returncode, 0)
         self.assertEqual(path.read_bytes(), before)
 

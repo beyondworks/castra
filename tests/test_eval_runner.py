@@ -17,9 +17,9 @@ class Checks(unittest.TestCase):
             base = Path(directory)
             for name in ('run_model.py', 'create.py', 'score.py'):
                 shutil.copy2(ROOT / 'evals/messenger' / name, base / name)
-            fake = base / 'fake-claude'
-            fake.write_text('#!' + sys.executable + '\nprint(' + repr('\n'.join(json.dumps(x) for x in records)) + ')\n')
-            fake.chmod(0o700)
+            fake = base / 'fake-claude.py'
+            fake.write_text('print(' + repr('\n'.join(json.dumps(x) for x in records)) + ')\n',
+                            encoding='utf-8')
             proc = subprocess.run([sys.executable, str(base/'run_model.py'), '--label', 'case',
                                    '--model', 'fixture-model', '--harness', str(ROOT), '--cli', str(fake)],
                                   capture_output=True, text=True, timeout=30)

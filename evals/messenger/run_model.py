@@ -27,7 +27,10 @@ sid = str(uuid.uuid4())
 prompt = ('castra: run ' + data['prompt'] + '\n'
           '이 작업은 현재 폴더의 로컬 앱에 한정한다. 현재 폴더 밖의 사용자 파일을 수정하지 말고, '
           '외부 서비스 호출이나 배포는 하지 마. 현재 폴더에 있는 안내와 코드를 기준으로 실행해줘.')
-cmd = [a.cli, '-p', prompt, '--model', a.model, '--effort', 'high',
+# A .py wrapper runs through the interpreter: a shebang is not executable on
+# Windows, where CreateProcess only launches real executables and batch files.
+launcher = [sys.executable, a.cli] if a.cli.endswith('.py') else [a.cli]
+cmd = launcher + ['-p', prompt, '--model', a.model, '--effort', 'high',
        '--setting-sources', '', '--settings', str(settings_file),
        '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
        '--tools', 'Bash,Read,Edit,Write,Glob,Grep', '--allowedTools', 'Bash,Read,Edit,Write,Glob,Grep',

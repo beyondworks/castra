@@ -140,7 +140,8 @@ class TraceTests(unittest.TestCase):
         for name in ('castra-trace.py', 'castra-openloop.py'):
             shutil.copy2(ROOT / 'hooks' / name, hooks / name)
         shutil.copy2(ROOT / 'scripts/castra_runtime.py', scripts / 'castra_runtime.py')
-        env = dict(os.environ, HOME=str(home))
+        # Path.home() reads USERPROFILE on Windows and HOME elsewhere.
+        env = dict(os.environ, HOME=str(home), USERPROFILE=str(home))
         env.pop('CASTRA_HOME', None)
         for custom in (False, True):
             if custom:

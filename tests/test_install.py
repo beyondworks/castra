@@ -31,16 +31,17 @@ class InstallTests(unittest.TestCase):
         for name in names:
             self.put(self.src / 'hooks' / name, 'import sys\nsys.stdin.read()\n')
         for name in ('castra-posture.py', 'castra-route.py'):
-            self.put(self.src / 'hooks' / name, (ROOT / 'hooks' / name).read_text())
+            self.put(self.src / 'hooks' / name, (ROOT / 'hooks' / name).read_text(encoding='utf-8'))
         for relative in installer.REQUIRED_HOME_FILES:
-            self.put(self.src / relative, (ROOT / relative).read_text())
+            self.put(self.src / relative, (ROOT / relative).read_text(encoding='utf-8'))
         self.put(self.src / 'skills/castra/SKILL.md', 'castra fixture\n')
         self.put(self.src / 'skills/thinking-map/SKILL.md', 'thinking fixture\n')
         self.put(self.src / 'VERSION', '0.7.0\n')
 
     def put(self, path, text):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
+        # Windows defaults to a legacy code page; the hooks carry non-ASCII.
+        path.write_text(text, encoding='utf-8')
 
     def snapshot(self):
         return {str(p.relative_to(self.base)): p.read_bytes() for p in self.base.rglob('*') if p.is_file()}
