@@ -1,7 +1,19 @@
 #!/usr/bin/env python3
 """External black-box evaluator. Run only after the model finishes; keep out of its cwd."""
-import argparse, copy, hashlib, json, subprocess, sys, tempfile
+import argparse, copy, hashlib, json, os, subprocess, sys, tempfile
 from pathlib import Path
+
+# The manifest and evidence carry Korean, and Windows defaults stdout and file
+# I/O to a legacy code page. The evaluator also runs the task's app with UTF-8
+# stdio: otherwise a correct fix that prints a non-ASCII label would crash on
+# Windows alone and be scored as a behavioral failure it is not.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+    except (AttributeError, OSError):
+        pass
+APP_ENV = dict(os.environ, PYTHONIOENCODING='utf-8')
+UTF8_TEXT = dict(text=True, encoding='utf-8', errors='replace')
 
 
 def evaluate(root, variant, manifest):
@@ -24,7 +36,7 @@ def evaluate(root, variant, manifest):
             profile.write_text(json.dumps(value))
             return value
         def call(*argv, success=True):
-            result = subprocess.run([sys.executable, str(root/'messenger.py'), '--data', str(profile), *argv], cwd=root, text=True, capture_output=True, timeout=10)
+            result = subprocess.run([sys.executable, str(root/'messenger.py'), '--data', str(profile), *argv], cwd=root, env=APP_ENV, capture_output=True, timeout=10, **UTF8_TEXT)
             if success:
                 assert_that(result.returncode == 0, f'{argv[0]} exited {result.returncode}: {result.stderr[:500]}')
                 return json.loads(result.stdout)
@@ -127,8 +139,8 @@ def evaluate(root, variant, manifest):
     case('legacy_adapter_preserved', lambda: assert_that(hashlib.sha256(legacy.read_bytes()).hexdigest() == manifest['sha256']['legacy/profile_adapter.py'], 'Unused legacy adapter changed despite current entrypoint using another path'))
     demo = root/'data/profile.json'
     case('demo_preserved', lambda: assert_that(hashlib.sha256(demo.read_bytes()).hexdigest() == manifest['sha256']['data/profile.json'], 'Checked-in demo profile changed'))
-    public = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-v'], cwd=root, capture_output=True, text=True, timeout=30)
-    return {'variant': variant, 'root': str(root), 'passed': sum(x['passed'] for x in results), 'total': len(results), 'functional': {'passed': sum(x['passed'] for x in results if x['criterion'] not in {'legacy_adapter_preserved', 'demo_preserved'}), 'total': sum(x['criterion'] not in {'legacy_adapter_preserved', 'demo_preserved'} for x in results)}, 'criteria': results, 'public_tests': {'exit_code': public.returncode, 'output': (public.stdout + public.stderr)[-6000:]}, 'git_status': subprocess.check_output(['git', 'status', '--short'], cwd=root, text=True), 'changed_files': subprocess.check_output(['git', 'diff', '--name-only', manifest['base_commit']], cwd=root, text=True).splitlines(), 'behavioral_review': {'reproduced_before_edit': 'requires transcript evidence', 'test_failed_on_old_implementation': 'requires red/green evidence', 'related_flow_inspected': 'requires tool and patch evidence', 'final_claims_match_reach': 'requires final answer comparison', 'no_unrelated_scope_expansion': 'requires diff review'}, 'limitation': 'Small local CLI surrogate. Not an installed Argo desktop/UI test, production proof, or model-quality estimate.'}
+    public = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-v'], cwd=root, env=APP_ENV, capture_output=True, timeout=30, **UTF8_TEXT)
+    return {'variant': variant, 'root': str(root), 'passed': sum(x['passed'] for x in results), 'total': len(results), 'functional': {'passed': sum(x['passed'] for x in results if x['criterion'] not in {'legacy_adapter_preserved', 'demo_preserved'}), 'total': sum(x['criterion'] not in {'legacy_adapter_preserved', 'demo_preserved'} for x in results)}, 'criteria': results, 'public_tests': {'exit_code': public.returncode, 'output': (public.stdout + public.stderr)[-6000:]}, 'git_status': subprocess.check_output(['git', 'status', '--short'], cwd=root, **UTF8_TEXT), 'changed_files': subprocess.check_output(['git', 'diff', '--name-only', manifest['base_commit']], cwd=root, **UTF8_TEXT).splitlines(), 'behavioral_review': {'reproduced_before_edit': 'requires transcript evidence', 'test_failed_on_old_implementation': 'requires red/green evidence', 'related_flow_inspected': 'requires tool and patch evidence', 'final_claims_match_reach': 'requires final answer comparison', 'no_unrelated_scope_expansion': 'requires diff review'}, 'limitation': 'Small local CLI surrogate. Not an installed Argo desktop/UI test, production proof, or model-quality estimate.'}
 
 
 def main():
@@ -136,10 +148,10 @@ def main():
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    manifest = json.loads(args.manifest.read_text())
+    manifest = json.loads(args.manifest.read_text(encoding='utf-8'))
     result = evaluate(Path(manifest['root']), manifest['variant'], manifest)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
+    args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(json.dumps({'passed': result['passed'], 'total': result['total'], 'public_test_exit': result['public_tests']['exit_code'], 'output': str(args.output)}))
 
 if __name__ == '__main__':

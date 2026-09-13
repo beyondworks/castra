@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
 """Create a disposable, dependency-free behavioral task. Never place evaluator in task dir."""
-import argparse, hashlib, json, subprocess
+import argparse, hashlib, json, subprocess, sys
 from pathlib import Path
 from textwrap import dedent
+
+# The prompt and manifest are Korean. Windows defaults stdout and file I/O to a
+# legacy code page, which cannot encode them. Everything this script itself reads
+# or writes is UTF-8; the fixture code in the templates below is left as written,
+# because changing it would change what the evaluation measures.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+    except (AttributeError, OSError):
+        pass
 
 COMMON = {
     'store.py': '''
@@ -212,13 +222,13 @@ def main():
     for name, content in files.items():
         path = args.dest / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(dedent(content).lstrip('\n'))
+        path.write_text(dedent(content).lstrip('\n'), encoding='utf-8')
     subprocess.run(['git', 'init', '-q', '-b', 'fixture-work'], cwd=args.dest, check=True)
     subprocess.run(['git', 'add', '.'], cwd=args.dest, check=True)
     subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@localhost', 'commit', '-qm', 'Baseline local messenger profile'], cwd=args.dest, check=True)
     manifest = {'variant': args.variant, 'root': str(args.dest.resolve()), 'prompt': prompt, 'sha256': {name: hashlib.sha256((args.dest/name).read_bytes()).hexdigest() for name in files}, 'base_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=args.dest, text=True).strip()}
     args.manifest.parent.mkdir(parents=True, exist_ok=True)
-    args.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
+    args.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(json.dumps({'root': manifest['root'], 'manifest': str(args.manifest), 'prompt': prompt}, ensure_ascii=False))
 
 if __name__ == '__main__':

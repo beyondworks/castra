@@ -12,6 +12,15 @@ import pathlib
 import sys
 import time
 
+# Checkpoints are written in whatever language the user works in. Windows sends
+# stdout through a legacy code page when it is a pipe, so `read` and `search`
+# crashed on a Korean checkpoint there. The file writes were already UTF-8.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
+
 TAIL_BYTES = 512 * 1024
 OUTPUT_BYTES = 8000
 FIELDS = ("goal", "decision", "progress", "learned", "next")
