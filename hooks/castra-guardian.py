@@ -14,6 +14,30 @@ try:
 except (AttributeError, OSError):
     pass
 
+# In these modes the user has chosen not to be interrupted. A hook returning
+# "ask" is the one thing that still opens an approval dialog there, and across
+# 356 sessions every such dialog was approved and the command ran unchanged, so
+# the prompt cost attention without changing a single result. The reason goes
+# to the model as context instead. A "deny" opens no dialog and is kept.
+# dontAsk is left out on purpose: there an "ask" becomes a denial, which is
+# the strict behaviour that mode exists for.
+NO_PROMPT_MODES = {"auto", "bypassPermissions"}
+
+
+def confirmation(payload, reason):
+    """ask 판정을 권한 모드에 맞춰 낸다. 창을 띄우지 않는 모드면 참고로만 알린다."""
+    mode = payload.get("permission_mode") if isinstance(payload, dict) else None
+    if mode in NO_PROMPT_MODES:
+        return {"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": f"Castra advisory, not prompted in {mode} mode: {reason}",
+        }}
+    return {"hookSpecificOutput": {
+        "hookEventName": "PreToolUse", "permissionDecision": "ask",
+        "permissionDecisionReason": reason,
+    }}
+
+
 HERE = pathlib.Path(__file__).resolve().parent
 for candidate in (HERE.parent / "scripts", pathlib.Path(os.environ.get("CASTRA_HOME") or pathlib.Path.home() / ".castra") / "scripts"):
     if (candidate / "castra_guardian.py").is_file():
@@ -22,7 +46,11 @@ for candidate in (HERE.parent / "scripts", pathlib.Path(os.environ.get("CASTRA_H
 try:
     from castra_guardian import classify, ORDER
 except ImportError:
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask", "permissionDecisionReason": "Castra classifier unavailable; inspect installation before risky execution."}}))
+    try:
+        _payload = json.load(sys.stdin)
+    except Exception:
+        _payload = {}
+    print(json.dumps(confirmation(_payload, "Castra classifier unavailable; inspect installation before risky execution.")))
     sys.exit(0)
 
 HISTORY_N = 5          # bounded local history, advisory only
@@ -111,10 +139,8 @@ def main():
         return
 
     if grade == "confirm_at_action":
-        print(json.dumps({"hookSpecificOutput": {
-            "hookEventName": "PreToolUse", "permissionDecision": "ask",
-            "permissionDecisionReason": f"castra-guardian: {reasons}. Use the platform's permission decision for this exact action.",
-        }}))
+        print(json.dumps(confirmation(payload,
+            f"castra-guardian: {reasons}. Use the platform's permission decision for this exact action.")))
         return
     if grade == "pre_approval" or escalated:
         print(json.dumps({"hookSpecificOutput": {

@@ -200,4 +200,28 @@ class Checks(unittest.TestCase):
         proc=subprocess.run([sys.executable,str(ROOT/'hooks/castra-guardian.py')],input=json.dumps({'tool_name':'Bash','tool_input':{'command':'git reset --hard'},'transcript_path':''}),text=True,capture_output=True)
         self.assertEqual(json.loads(proc.stdout)['hookSpecificOutput']['permissionDecision'],'ask')
 
+    def guardian(self, command, mode=None):
+        payload = {'tool_name': 'Bash', 'tool_input': {'command': command}, 'transcript_path': ''}
+        if mode:
+            payload['permission_mode'] = mode
+        proc = subprocess.run([sys.executable, str(ROOT/'hooks/castra-guardian.py')], input=json.dumps(payload),
+                              text=True, encoding='utf-8', errors='replace', capture_output=True)
+        return json.loads(proc.stdout).get('hookSpecificOutput', {})
+
+    def test_guardian_never_prompts_in_auto_or_bypass(self):
+        # Every guardian "ask" in 356 sessions was approved and the command ran
+        # unchanged. In modes where the user chose no interruptions, the reason
+        # reaches the model as context and no dialog opens.
+        for mode in ('auto', 'bypassPermissions'):
+            out = self.guardian('git reset --hard', mode)
+            self.assertNotIn('permissionDecision', out, mode)
+            self.assertIn('not prompted', out.get('additionalContext', ''), mode)
+        for mode in ('default', 'acceptEdits', 'dontAsk'):
+            self.assertEqual(self.guardian('git reset --hard', mode).get('permissionDecision'), 'ask', mode)
+
+    def test_guardian_hand_off_is_still_denied_in_bypass(self):
+        # A deny opens no dialog, so it is not what the user asked to remove.
+        for mode in ('auto', 'bypassPermissions', None):
+            self.assertEqual(self.guardian('cat .env', mode).get('permissionDecision'), 'deny', mode)
+
 if __name__=='__main__':unittest.main()
