@@ -16,6 +16,60 @@ try:
 except (AttributeError, OSError):
     pass
 
+# See castra-guardian.py: in these modes an "ask" is the only thing that still
+# opens a dialog, and every one observed was approved without changing the
+# result. The reason is passed to the model instead. A CI-based "deny" is kept.
+NO_PROMPT_MODES = {"auto", "bypassPermissions"}
+
+# Commands that only print or search their arguments. Their segments are dropped
+# before looking for publication, unless their output is piped onward.
+PRINT_ONLY = ("echo", "printf", "rg", "grep")
+
+
+def _segments(command):
+    """따옴표를 존중해 셸 구분자로 나눈다. (구간, 뒤따르는 구분자) 목록."""
+    out, buf, quote, i = [], [], None, 0
+    while i < len(command):
+        ch = command[i]
+        if quote:
+            buf.append(ch)
+            if ch == "\\" and quote == '"' and i + 1 < len(command):
+                buf.append(command[i + 1]); i += 2; continue
+            if ch == quote:
+                quote = None
+        elif ch in "'\"":
+            quote = ch; buf.append(ch)
+        elif ch in ";\n":
+            out.append(("".join(buf), ch)); buf = []
+        elif command.startswith("&&", i) or command.startswith("||", i):
+            out.append(("".join(buf), command[i:i+2])); buf = []; i += 2; continue
+        elif ch in "|&":
+            out.append(("".join(buf), ch)); buf = []
+        else:
+            buf.append(ch)
+        i += 1
+    out.append(("".join(buf), ""))
+    return out
+
+
+def publication_text(command):
+    """발행 여부를 판단할 텍스트. 출력만 하는 echo·printf 구간은 뺀다.
+
+    `echo "== git tag exists?"` 같은 안내 문구가 태그 명령으로 오인돼, 조회만
+    하는 명령에 승인 창이 뜬 사례가 있었다. 따옴표를 통째로 지우지는 않는다.
+    `bash -c "git tag v1"` 처럼 따옴표 안이 실제로 실행되는 경우가 있기 때문이다.
+    echo 출력이 파이프로 다른 명령에 들어가는 경우도 빼지 않는다.
+    """
+    kept = []
+    for segment, sep in _segments(command):
+        words = segment.strip().split()
+        head = os.path.basename(words[0]) if words else ""
+        if head in PRINT_ONLY and sep != "|":
+            continue
+        kept.append(segment)
+    return " ; ".join(kept)
+
+
 def release_target(command, cwd):
     """Return (active, repo cwd, revision). None revision requires human review.
 
@@ -29,10 +83,14 @@ def release_target(command, cwd):
     if not tokens:
         return False, cwd, None
     executable = os.path.basename(tokens.pop(0))
+    scan = publication_text(command)
     if executable not in ("git", "gh"):
-        return bool(re.search(r"\b(?:git\s+(?:tag|push)|gh\s+release\s+create)\b", command)) and executable not in ("echo", "printf", "rg", "grep"), cwd, None
+        # Output-only and search segments are already removed from scan, so no
+        # blanket exclusion by the first word: that exclusion let
+        # `echo "git tag v1" | bash` through, where the echo output is executed.
+        return bool(re.search(r"\b(?:git\s+(?:tag|push)|gh\s+release\s+create)\b", scan)), cwd, None
     if re.search(r"[;|&\n`]|\$\(", command):
-        publication = re.search(r"\b(?:git\s+(?:-C\s+\S+\s+)?tag|git\s+push[^;|&]*(?:refs/tags/|--tags|--follow-tags|\bv\d)|gh\s+release\s+create)\b", command)
+        publication = re.search(r"\b(?:git\s+(?:-C\s+\S+\s+)?tag|git\s+push[^;|&]*(?:refs/tags/|--tags|--follow-tags|\bv\d)|gh\s+release\s+create)\b", scan)
         return bool(publication), cwd, None
     if executable == "git":
         while tokens and tokens[0].startswith("-"):
@@ -199,10 +257,17 @@ def main() -> int:
             "permissionDecisionReason": "castra-release-gate: " + reason,
         }}))
     elif verdict == "confirm":
-        print(json.dumps({"hookSpecificOutput": {
-            "hookEventName": "PreToolUse", "permissionDecision": "ask",
-            "permissionDecisionReason": "castra-release-gate: " + reason,
-        }}))
+        mode = payload.get("permission_mode")
+        if mode in NO_PROMPT_MODES:
+            print(json.dumps({"hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "additionalContext": f"Castra advisory, not prompted in {mode} mode: castra-release-gate: {reason}",
+            }}))
+        else:
+            print(json.dumps({"hookSpecificOutput": {
+                "hookEventName": "PreToolUse", "permissionDecision": "ask",
+                "permissionDecisionReason": "castra-release-gate: " + reason,
+            }}))
     return 0
 
 

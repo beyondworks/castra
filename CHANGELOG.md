@@ -4,6 +4,26 @@ All notable changes to Castra are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-09-14
+
+### Changed
+- In `auto` and `bypassPermissions` modes Castra no longer opens approval dialogs.
+  Across 356 sessions over four days its hooks asked 17 times; all 17 were approved
+  and ran unchanged, so the dialogs cost attention without changing any result, and
+  a dialog that is always approved trains the approval of the one that matters.
+  A would-be "ask" now reaches the model as context instead. A fact-based "deny" —
+  failing or unfinished CI on a release target, printing environment-variable files,
+  force pushes — opens no dialog and is unchanged. `default`, `acceptEdits` and
+  `dontAsk` still ask.
+
+### Fixed
+- The release gate treated an echo label mentioning a tag inside a compound command
+  as a tag, so a read-only release lookup opened a dialog. Print-only and search
+  segments are dropped before looking for publication, without stripping quotes
+  globally, because `bash -c "git tag v1"` does execute its quoted text.
+- Piping echo output into a shell passed the gate: echo was excluded by its first
+  word even though its output was executed. Segments piped onward are now kept.
+
 ## [0.9.0] - 2026-09-12
 
 ### Changed

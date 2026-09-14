@@ -35,14 +35,17 @@ def fake_env(tmp: pathlib.Path, runs, head=HEAD) -> dict:
     }
 
 
-def run(cmd: str, runs, head=HEAD) -> dict:
+def run(cmd: str, runs, head=HEAD, mode=None) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         tmp = pathlib.Path(tmp)
         env = dict(os.environ, **fake_env(tmp, runs, head))
+        payload = {"hook_event_name": "PreToolUse", "tool_name": "Bash",
+                   "tool_input": {"command": cmd}, "cwd": str(tmp)}
+        if mode:
+            payload["permission_mode"] = mode
         proc = subprocess.run(
             [sys.executable, str(HOOK)],
-            input=json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash",
-                              "tool_input": {"command": cmd}, "cwd": str(tmp)}),
+            input=json.dumps(payload),
             capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
         try:
             return json.loads(proc.stdout or "{}")
@@ -56,6 +59,8 @@ def verdict(out: dict) -> str:
         return "deny"
     if hs.get("permissionDecision") == "ask":
         return "confirm"
+    if "not prompted" in (hs.get("additionalContext") or ""):
+        return "advise"
     return "allow"
 
 
@@ -96,10 +101,38 @@ def main() -> int:
         ("latest failed wins", "git tag v1", RED + GREEN, "deny"),
         ("malformed runs", "git tag v1", [42], "confirm"),
     ]
+    # A read-only command whose echo label mentions "git tag" opened an approval
+    # dialog in a real session. Output-only segments are not publication, but a
+    # quoted command that actually executes still is.
+    cases += [
+        ("echo label in compound read", 'cd x; gh release view v1 -R o/r; echo "== git tag exists?"', RED, "allow"),
+        ("printf label in compound read", "git status; printf 'git push origin v1\\n'", RED, "allow"),
+        ("echo piped into a shell still counts", 'echo "git tag v1" | bash', GREEN, "confirm"),
+        ("bash -c executes its quoted tag", 'cd x; bash -c "git tag v1"', GREEN, "confirm"),
+    ]
+
     for label, cmd, runs, want in cases:
         got = verdict(run(cmd, runs))
         if got != want:
             failures.append(f"{label}: expected {want}, got {got}")
+
+    # In auto and bypass modes nothing may open a dialog: a would-be "ask" becomes
+    # advice to the model. A CI-based "deny" opens no dialog and must survive.
+    # dontAsk and the default mode keep asking.
+    mode_cases = [
+        ("uncertain target, bypass", "git push origin --tags", GREEN, "bypassPermissions", "advise"),
+        ("uncertain target, auto", "git push origin --tags", GREEN, "auto", "advise"),
+        ("uncertain target, default", "git push origin --tags", GREEN, "default", "confirm"),
+        ("uncertain target, dontAsk", "git push origin --tags", GREEN, "dontAsk", "confirm"),
+        ("failing CI, bypass still denied", "git tag -a v1.0.0 -m x", RED, "bypassPermissions", "deny"),
+        ("pending CI, auto still denied", "git tag -a v1.0.0 -m x", PENDING, "auto", "deny"),
+        ("green CI, bypass allowed", "git tag -a v1.0.0 -m x", GREEN, "bypassPermissions", "allow"),
+    ]
+    for label, cmd, runs, mode, want in mode_cases:
+        got = verdict(run(cmd, runs, mode=mode))
+        if got != want:
+            failures.append(f"{label}: expected {want}, got {got}")
+    cases += [(c[0], c[1], c[2], c[4]) for c in mode_cases]
 
     for f in failures:
         print("FAIL", f)
