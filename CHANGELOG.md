@@ -23,6 +23,10 @@ All notable changes to Castra are recorded here. The format follows
   globally, because `bash -c "git tag v1"` does execute its quoted text.
 - Piping echo output into a shell passed the gate: echo was excluded by its first
   word even though its output was executed. Segments piped onward are now kept.
+- Any compound command led by `cd` matched every `git push`, so the common
+  `cd repo && git push origin feature` was read as a release, and `git tag --list`
+  or a bare `git tag` was read as creating a tag. Compound commands now share one
+  tag-aware definition.
 
 ## [0.9.0] - 2026-09-12
 

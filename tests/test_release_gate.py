@@ -109,6 +109,15 @@ def main() -> int:
         ("printf label in compound read", "git status; printf 'git push origin v1\\n'", RED, "allow"),
         ("echo piped into a shell still counts", 'echo "git tag v1" | bash', GREEN, "confirm"),
         ("bash -c executes its quoted tag", 'cd x; bash -c "git tag v1"', GREEN, "confirm"),
+        # A compound led by cd matched every git push, so ordinary branch pushes
+        # were read as releases; listings and bare `git tag` were read as creation.
+        ("cd then branch push", "cd repo && git push -u origin feature/x", RED, "allow"),
+        ("cd then branch push, multi-line", "cd repo\ngit add a.py\ngit push -q -u origin fix/y", RED, "allow"),
+        ("cd then tag listing", "cd repo; git tag --list", RED, "allow"),
+        ("cd then bare git tag", "cd repo; git tag", RED, "allow"),
+        ("cd then tag creation", "cd repo; git tag -a v1.2.3 -m release", GREEN, "confirm"),
+        ("cd then tag push", "cd repo && git push origin v1.2.3", GREEN, "confirm"),
+        ("cd then push --tags", "cd repo && git push --tags", GREEN, "confirm"),
     ]
 
     for label, cmd, runs, want in cases:

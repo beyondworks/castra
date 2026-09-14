@@ -25,6 +25,18 @@ NO_PROMPT_MODES = {"auto", "bypassPermissions"}
 # before looking for publication, unless their output is piped onward.
 PRINT_ONLY = ("echo", "printf", "rg", "grep")
 
+# Publication inside a compound command, where arguments are not parsed:
+# - `git tag` followed by a name or a creating flag, not a listing or delete
+# - `git push` carrying a tag ref, --tags/--follow-tags, or a v<digit> name
+# - `gh release create`
+COMPOUND_PUBLICATION = re.compile(
+    r"\bgit\s+(?:-C\s+\S+\s+)?tag"
+    r"(?=\s+[^\s;|&])"
+    r"(?!\s+(?:-l|--list|-d|--delete|-v|--verify|-n\d*|--contains|--no-contains|"
+    r"--points-at|--merged|--no-merged|--sort|--format|--column)\b)"
+    r"|\bgit\s+push\b[^;|&\n]*(?:refs/tags/|--tags\b|--follow-tags\b|\sv\d)"
+    r"|\bgh\s+release\s+create\b")
+
 
 def _segments(command):
     """따옴표를 존중해 셸 구분자로 나눈다. (구간, 뒤따르는 구분자) 목록."""
@@ -84,14 +96,14 @@ def release_target(command, cwd):
         return False, cwd, None
     executable = os.path.basename(tokens.pop(0))
     scan = publication_text(command)
-    if executable not in ("git", "gh"):
-        # Output-only and search segments are already removed from scan, so no
-        # blanket exclusion by the first word: that exclusion let
-        # `echo "git tag v1" | bash` through, where the echo output is executed.
-        return bool(re.search(r"\b(?:git\s+(?:tag|push)|gh\s+release\s+create)\b", scan)), cwd, None
-    if re.search(r"[;|&\n`]|\$\(", command):
-        publication = re.search(r"\b(?:git\s+(?:-C\s+\S+\s+)?tag|git\s+push[^;|&]*(?:refs/tags/|--tags|--follow-tags|\bv\d)|gh\s+release\s+create)\b", scan)
-        return bool(publication), cwd, None
+    if executable not in ("git", "gh") or re.search(r"[;|&\n`]|\$\(", command):
+        # One definition for every compound or non-git-led command. The branch for
+        # commands led by `cd` used to match any `git push`, so the very common
+        # `cd repo && git push origin feature` counted as a release; it also read
+        # `git tag --list` and a bare `git tag` as creating a tag. Output-only and
+        # search segments are already removed from scan, which is why there is no
+        # blanket exclusion by first word: that let `echo "git tag v1" | bash` pass.
+        return bool(COMPOUND_PUBLICATION.search(scan)), cwd, None
     if executable == "git":
         while tokens and tokens[0].startswith("-"):
             if tokens[0] == "-C" and len(tokens) >= 2:
