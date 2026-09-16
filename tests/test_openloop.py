@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Supported Stop protocol, bounded reentry, legacy evidence preservation."""
 import json
+import os
 import pathlib
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -19,6 +21,9 @@ class StopTests(unittest.TestCase):
         self.cwd = pathlib.Path(self.tmp.name).resolve()
         self.file = self.cwd / 'app.py'
         self.file.write_text('pass')
+        home = patch.dict(os.environ, {'CASTRA_HOME': str(self.cwd / 'castra-home')})
+        home.start()
+        self.addCleanup(home.stop)
 
     def run_hook(self, session='a', active=False, payload=None):
         p = subprocess.run([sys.executable, str(ROOT / 'hooks/castra-openloop.py')],

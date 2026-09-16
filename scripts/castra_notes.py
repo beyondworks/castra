@@ -58,26 +58,45 @@ def _records(path):
     return out
 
 
-def _state_root(cwd=None):
-    env = os.environ.get("CASTRA_NOTES_DIR") or os.environ.get("ASTRA_NOTES_DIR")
-    if env:
-        return pathlib.Path(env).expanduser()
+def _notes_env():
+    return os.environ.get("CASTRA_NOTES_DIR") or os.environ.get("ASTRA_NOTES_DIR")
+
+
+def _legacy_root(cwd=None):
     cwd = pathlib.Path(cwd or pathlib.Path.cwd())
     new_dir, old_dir = cwd / ".castra", cwd / ".astra"
     return old_dir if not new_dir.exists() and old_dir.exists() else new_dir
 
 
+def _digest(session_id):
+    return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+
+
 def notes_path(cwd=None, session_id=None):
-    root = _state_root(cwd)
     session_id = session_id or os.environ.get("CLAUDE_SESSION_ID", "")
-    if session_id:
-        digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
-        return root / "sessions" / digest / "notes.jsonl"
-    return root / "notes.jsonl"  # legacy location is never migrated or removed
+    env = _notes_env()
+    if not session_id:
+        # Unscoped notes predate sessions; that location is never migrated or removed.
+        return (pathlib.Path(env).expanduser() if env else _legacy_root(cwd)) / "notes.jsonl"
+    if env:
+        root = pathlib.Path(env).expanduser()
+    else:
+        from castra_runtime import state_root  # one place per session, never the working directory
+        root = state_root()
+    return root / "sessions" / _digest(session_id) / "notes.jsonl"
+
+
+def _session_records(cwd=None, session_id=None):
+    entries = _records(notes_path(cwd, session_id))
+    session_id = session_id or os.environ.get("CLAUDE_SESSION_ID", "")
+    if entries or not session_id or _notes_env():
+        return entries
+    # Read-only fallback for checkpoints written while state lived in <cwd>/.castra.
+    return _records(_legacy_root(cwd) / "sessions" / _digest(session_id) / "notes.jsonl")
 
 
 def latest_checkpoint(cwd=None, session_id=None):
-    entries = _records(notes_path(cwd, session_id))
+    entries = _session_records(cwd, session_id)
     return entries[-1] if entries else None
 
 
@@ -123,13 +142,13 @@ def _render(entries):
 
 
 def cmd_read(a):
-    entries = _records(notes_path(session_id=a.session))
+    entries = _session_records(session_id=a.session)
     show = entries if a.all else entries[-max(1, min(a.limit, 100)):]
     print(bounded(_render(show) if show else "no checkpoints yet", a.budget))
 
 
 def cmd_search(a):
-    entries = _records(notes_path(session_id=a.session))
+    entries = _session_records(session_id=a.session)
     hits = [e for e in entries if a.query.lower() in json.dumps(e, ensure_ascii=False).lower()]
     print(bounded(_render(hits[-max(1, min(a.limit, 100)):]) if hits else "no match in bounded recent checkpoints", a.budget))
 

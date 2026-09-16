@@ -33,7 +33,7 @@ python3 ~/.castra/scripts/castra_notes.py read --session SESSION_ID
 
 Use the actual session id/script directory from the runtime hint. Plugin scripts live under the plugin root. `verify` runs argv without a shell, caps runtime, stores hashes/exit/time and returns a bounded diagnostic tail. Recognizable secrets are redacted best-effort; do not run credential-dumping checks. Commands/output are not retained in the evidence ledger. A green result establishes execution over the declared bytes, not semantic test adequacy. `defer` and `block` retain an explicit unresolved state with a reason code.
 
-State lives under the working directory's `.castra/`, separated by a hash of the session id. Legacy `.castra/openloops`, `.astra/openloops` and unscoped checkpoints are preserved. For cross-session handoff, explicitly select the old session id; neighboring sessions are never automatically adopted.
+State lives under `$CASTRA_HOME/sessions/` (default `~/.castra`), separated by a hash of the session id, so a session keeps one ledger when it changes directory and leaves no files in the repositories it visits. State and checkpoints that earlier releases wrote to `<cwd>/.castra/sessions/` are still read, never modified. Legacy `.castra/openloops`, `.astra/openloops` and unscoped checkpoints are preserved. For cross-session handoff, explicitly select the old session id; neighboring sessions are never automatically adopted.
 
 Set `CASTRA_CONTEXT_WINDOW` only when the actual capacity is known. Castra cannot increase that capacity, create a new context window, send a message during a blocked call, or supply an absent tool. The installed Claude CLI may expose `--brief`/SendUserMessage; use it only when actually available, not as an assumed harness feature.
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Evidence and session isolation regression checks."""
+import hashlib
 import json
 import os
 import shutil
@@ -8,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -21,6 +23,10 @@ class TraceTests(unittest.TestCase):
         self.cwd = pathlib.Path(self.tmp.name).resolve()
         self.file = self.cwd / 'app.py'
         self.file.write_text('print(1)\n')
+        # State lives under CASTRA_HOME; keep it away from the developer's ~/.castra.
+        home = patch.dict(os.environ, {'CASTRA_HOME': str(self.cwd / 'castra-home')})
+        home.start()
+        self.addCleanup(home.stop)
 
     def fire(self, tool='Edit', inp=None, response=None, session='a'):
         payload = {'session_id': session, 'cwd': str(self.cwd), 'hook_event_name': 'PostToolUse',
@@ -175,6 +181,35 @@ class TraceTests(unittest.TestCase):
         self.assertNotIn('diagnostic-visible', ledger)
         self.assertNotIn(sentinel, ledger)
         self.assertNotIn(str(check), ledger)
+
+    def test_one_ledger_across_directories_and_no_state_in_them(self):
+        # A session that cds elsewhere kept a separate ledger per directory and
+        # left .castra/ in every repository or worktree it visited.
+        other = self.cwd / 'elsewhere'
+        other.mkdir()
+        self.fire()
+        stop = subprocess.run([sys.executable, str(ROOT / 'hooks/castra-openloop.py')], text=True, capture_output=True,
+                              input=json.dumps({'session_id': 'a', 'cwd': str(other), 'stop_hook_active': False}))
+        self.assertEqual(json.loads(stop.stdout)['decision'], 'block')
+        for hook in ('castra-route.py', 'castra-posture.py'):
+            subprocess.run([sys.executable, str(ROOT / 'hooks' / hook)], text=True, capture_output=True,
+                           input=json.dumps({'session_id': 'a', 'cwd': str(other), 'prompt': 'continue', 'source': 'startup'}))
+        p = subprocess.run([sys.executable, str(ROOT / 'scripts/castra_runtime.py'), 'verify', '--session', 'a',
+                            '--file', str(self.file), '--', sys.executable, '-c', 'pass'], cwd=other, capture_output=True)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(self.item()['status'], 'verified')
+        self.assertFalse((self.cwd / '.castra').exists())
+        self.assertFalse((other / '.castra').exists())
+
+    def test_legacy_cwd_state_is_read_not_written(self):
+        legacy = self.cwd / '.castra/sessions' / (hashlib.sha256(b'a').hexdigest() + '.json')
+        legacy.parent.mkdir(parents=True)
+        original = json.dumps({'version': 1, 'stop_blocks': 0, 'files': {
+            str(self.file): {'status': 'pending', 'sha256': runtime.fingerprint(self.file)}}})
+        legacy.write_text(original)
+        self.assertEqual(self.item()['status'], 'pending')
+        self.assertEqual(legacy.read_text(), original)
+        self.assertTrue((pathlib.Path(os.environ['CASTRA_HOME']) / 'sessions' / legacy.name).is_file())
 
     def test_malformed_payload(self):
         for payload in ('[]', 'null', '{', '{"tool_input": []}'):
