@@ -91,9 +91,32 @@ def main() -> int:
         if proc.returncode != 0:
             failures.append("hook exited non-zero when the pack was absent")
 
+    # A desktop session can start at '/', which macOS mounts read-only. Recording
+    # the emission raised there, so the hook dropped the contract it had loaded.
+    checks = 6
+    if os.name != "nt" and os.geteuid() != 0:
+        checks += 1
+        with tempfile.TemporaryDirectory() as tmp:
+            locked = pathlib.Path(tmp) / "readonly"
+            locked.mkdir()
+            locked.chmod(0o500)
+            home = pathlib.Path(tmp) / "home"
+            payload = json.dumps({"hook_event_name": "SessionStart", "source": "startup",
+                                  "session_id": "readonly-probe", "cwd": str(locked)})
+            try:
+                proc = subprocess.run([sys.executable, str(HOOK)], input=payload,
+                                      capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                      cwd=ROOT, env=dict(os.environ, CASTRA_HOME=str(home)))
+            finally:
+                locked.chmod(0o700)
+            if ("<castra_execution_posture>" not in proc.stdout
+                    or "restoration failed" in proc.stdout
+                    or not list(home.glob("sessions/*.json"))):
+                failures.append("an unwritable cwd dropped the contract or its session state")
+
     for f in failures:
         print("FAIL", f)
-    print(f"{6 - len(failures)}/6 posture checks passed")
+    print(f"{checks - len(failures)}/{checks} posture checks passed")
     return 1 if failures else 0
 
 

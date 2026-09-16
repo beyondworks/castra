@@ -4,6 +4,20 @@ All notable changes to Castra are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Session state and checkpoints now live under `$CASTRA_HOME/sessions/` instead of
+  the hook's working directory. The desktop app reports the shell's current
+  directory, so one session that changed directory kept a separate ledger in each
+  folder: the Stop guard missed pending edits made elsewhere, and `.castra/`
+  appeared in other repositories and in worktrees other sessions were using.
+- A session started at `/` lost the execution contract and every runtime control,
+  because state could not be created on the read-only root volume.
+- State and checkpoints written by earlier releases to `<cwd>/.castra/sessions/`
+  are read when nothing newer exists, so an upgrade mid-session keeps its pending
+  edits. Those files are never modified.
+
 ## [0.9.1] - 2026-09-14
 
 ### Changed

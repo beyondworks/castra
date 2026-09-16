@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Session isolation, restoration, legacy preservation and bounded output."""
+import hashlib
 import json
 import os
 import pathlib
@@ -46,6 +47,45 @@ class NotesTests(unittest.TestCase):
             self.assertIn("next: verify", result)
             self.assertNotIn("old-next", result)
             self.assertEqual(notes.restore_checkpoint(self.cwd, "beta"), "")
+
+    @unittest.skipIf(os.name == "nt" or os.geteuid() == 0, "needs POSIX permissions")
+    def test_unwritable_cwd_falls_back_to_castra_home(self):
+        # A desktop session can start at '/', which macOS mounts read-only.
+        locked = self.cwd / "readonly"
+        locked.mkdir()
+        locked.chmod(0o500)
+        self.addCleanup(locked.chmod, 0o700)
+        env = dict(os.environ, CASTRA_HOME=str(self.cwd / "home"), CLAUDE_SESSION_ID="alpha")
+        env.pop("CASTRA_NOTES_DIR", None)
+        env.pop("ASTRA_NOTES_DIR", None)
+
+        def cli(*args):
+            return subprocess.run([sys.executable, str(CLI), *args], cwd=locked, env=env, text=True,
+                                  encoding="utf-8", errors="replace", capture_output=True, check=True).stdout
+
+        cli("checkpoint", "--goal", "root cwd")
+        self.assertIn("root cwd", cli("read"))
+        self.assertFalse((locked / ".castra").exists())
+
+    def test_session_notes_live_in_castra_home_and_legacy_is_read(self):
+        home, work = self.cwd / "home", self.cwd / "work"
+        work.mkdir()
+        legacy = work / ".castra/sessions" / hashlib.sha256(b"old").hexdigest() / "notes.jsonl"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_text(json.dumps({"goal": "before upgrade"}) + "\n")
+        env = dict(os.environ, CASTRA_HOME=str(home), CLAUDE_SESSION_ID="alpha")
+        env.pop("CASTRA_NOTES_DIR", None)
+        env.pop("ASTRA_NOTES_DIR", None)
+
+        def cli(*args):
+            return subprocess.run([sys.executable, str(CLI), *args], cwd=work, env=env, text=True,
+                                  encoding="utf-8", errors="replace", capture_output=True, check=True).stdout
+
+        cli("checkpoint", "--goal", "after upgrade")
+        self.assertEqual(len(list(home.glob("sessions/*/notes.jsonl"))), 1)
+        self.assertEqual([p for p in (work / ".castra").rglob("*") if p.is_file()], [legacy])
+        self.assertIn("after upgrade", cli("read"))
+        self.assertIn("before upgrade", cli("read", "--session", "old"))
 
     def test_preserve_legacy_unscoped(self):
         legacy = self.cwd / "notes/notes.jsonl"

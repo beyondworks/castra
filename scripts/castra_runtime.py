@@ -38,15 +38,28 @@ def fingerprint(file):
         return 'unreadable'
 
 
+def state_root():
+    """Session state lives under CASTRA_HOME, never in the working directory.
+
+    Hook payloads carry the shell's current directory, which moves with every cd.
+    Per-cwd state split one session's ledger across folders, left .castra/ in
+    other repositories and worktrees, and failed outright on a read-only '/'.
+    """
+    return Path(os.environ.get('CASTRA_HOME') or Path.home() / '.castra')
+
+
 @contextlib.contextmanager
 def locked(cwd, session):
     session = session_id(session)
     if not session:
         raise ValueError('session_id required; do not share anonymous state')
-    root = Path(cwd) / '.castra' / 'sessions'
+    root = state_root() / 'sessions'
     root.mkdir(parents=True, exist_ok=True)
     key = hashlib.sha256(session.encode()).hexdigest()
     path = root / (key + '.json')
+    # Read-only carry-over from releases that kept state in <cwd>/.castra, so an
+    # upgrade mid-session keeps its pending edits. The old file is never touched.
+    legacy = Path(cwd) / '.castra' / 'sessions' / (key + '.json')
     # Native flock serializes read/modify/replace across concurrent hook processes.
     # Windows uses a one-byte msvcrt lock over the same persistent lock file.
     with (root / (key + '.lock')).open('a+b') as lock:
@@ -61,7 +74,8 @@ def locked(cwd, session):
             import fcntl
             fcntl.flock(lock, fcntl.LOCK_EX)
         try:
-            state = json.loads(path.read_text()) if path.exists() else {'version': 1, 'files': {}, 'stop_blocks': 0}
+            source = path if path.exists() else legacy if legacy.is_file() else None
+            state = json.loads(source.read_text()) if source else {'version': 1, 'files': {}, 'stop_blocks': 0}
             if (not isinstance(state, dict) or not isinstance(state.get('files'), dict)
                     or any(not isinstance(item, dict) for item in state['files'].values())):
                 raise ValueError('invalid evidence state; original preserved')

@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import castra_runtime as runtime
@@ -18,6 +19,17 @@ route = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(route)
 
 class Checks(unittest.TestCase):
+    def use_home(self, home):
+        # Session state lives under CASTRA_HOME; hooks and in-process reads must agree.
+        env = patch.dict(os.environ, {'CASTRA_HOME': str(home)})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.use_home(Path(tmp.name) / 'castra-home')
+
     def test_explicit_only(self):
         for p, mode in [('castra: run fix bug','run'),('/castra:castra resume','resume'),('/castra review patch','review'),('castra: status','status'),('castra:plain','plain'),('/castra reframe','reframe'),('castra: finish','finish')]:
             self.assertEqual(route.route(p), mode)
@@ -37,7 +49,7 @@ class Checks(unittest.TestCase):
 
     def test_compact_restores_own_checkpoint(self):
         with tempfile.TemporaryDirectory() as tmp:
-            env=dict(os.environ,CASTRA_HOME=str(ROOT));env.pop('CASTRA_NOTES_DIR',None)
+            env=dict(os.environ);env.pop('CASTRA_NOTES_DIR',None)
             for sid in ('one','two'):
                 subprocess.run([sys.executable,str(ROOT/'scripts/castra_notes.py'),'checkpoint','--session',sid,'--goal',sid+'-goal','--next',sid+'-next'],cwd=tmp,env=env,capture_output=True,check=True)
             proc=subprocess.run([sys.executable,str(ROOT/'hooks/castra-posture.py')],cwd=tmp,env=env,input=json.dumps({'session_id':'one','cwd':tmp,'source':'compact'}),text=True,capture_output=True)
@@ -55,6 +67,7 @@ class Checks(unittest.TestCase):
                          'scripts/castra_contract.py'):
             shutil.copyfile(ROOT / relative, base / relative)
         self.write_pack(base, 'initial')
+        self.use_home(base)
         return base
 
     def write_pack(self, base, text):
@@ -170,7 +183,7 @@ class Checks(unittest.TestCase):
     def test_corrupt_runtime_is_preserved_and_failure_is_honest(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = self.isolated_hooks(tmp)
-            directory = Path(tmp) / '.castra/sessions'; directory.mkdir(parents=True)
+            directory = base / 'sessions'; directory.mkdir(parents=True)
             path = directory / (hashlib.sha256(b'one').hexdigest() + '.json')
             path.write_text('not-json')
             result = json.loads(self.hook(base, tmp))
